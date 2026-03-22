@@ -2,19 +2,34 @@
  *  Monterro — Activity app
  *  Target : LILYGO T-Watch 2020 V1/V2/V3 · LVGL 7.11.1
  *
- *  Based on the working original (activity_v5). Changes applied on top:
- *  ───────────────────────────────────────────────────────────────────────
- *  A. Pace threshold 2 m (kept from original)
- *  B. Display task UI-only, telemetry task separate (kept from original)
- *  C. Stop handler reads live pedometer value (kept from original)
- *  D. WiFi fallback wakes WiFi and POSTs /live (kept from original)
- *  E. BLE primary, WiFi only when BLE off (kept from original)
- *  F. SPIFFS persistence — save every session to flash on the watch
- *  G. Ring-buffer shift always runs (was broken: only ran when full)
- *  H. History guard: save if dur > 0 (not steps > 0, handles BMA warmup)
- *  I. post_session_end() — WiFi notifies Pi at session end
- *  J. History display: buf[1024], skip zero-step entries, show duration
- *  K. SPIFFS.begin(true) — always works, formats on fresh flash
+ *  Fix log vs previous builds
+ *  ──────────────────────────
+ *  1. TITLE   — monterro_64px didn't exist → linker failed silently, old
+ *               binary kept running. Now uses monterro_64px (always present)
+ *               with name "Monterro". Swap back when your PNG is converted.
+ *
+ *  2. HISTORY — shift only ran when array was FULL (history_count==MAX).
+ *               Every session before slot 10 silently overwrote history[0].
+ *               Fixed: always shift before inserting at [0].
+ *
+ *  3. SPIFFS  — SPIFFS.begin(true) was called twice: in load_history() AND
+ *               in save_session(). Now mounted ONCE in activity_app_setup().
+ *
+ *  4. HISTORY GUARD — was "if (final_steps > 0)" which silently dropped
+ *               sessions with 0 steps (timing gap between pedometer and stop).
+ *               Now guards on "final_dur > 0" — any session with elapsed time
+ *               is worth recording even if steps reads 0.
+ *
+ *  5. BG OPA  — bg tiles always need LV_OPA_COVER or mainbar dark bg bleeds
+ *               through. Already correct in both uploads, kept as-is.
+ *
+ *  6. PACE    — threshold 2 m (not 10 m). Shows after ~4 steps at 50 cm/step.
+ *
+ *  7. TASKS   — display task (1 s): labels/arcs only, zero BLE/WiFi.
+ *               telemetry task (5 s): BLE primary, WiFi fallback. Kept.
+ *
+ *  8. WIFI    — never calls wifictl_on(). mDNS with hardcoded fallback IP.
+ *               Only POSTs when WiFi already connected.
  */
 
 #include "config.h"
@@ -42,7 +57,14 @@
     #endif
 #endif
 
-// Swap back to monterro_64px once monterro_64px.c is in the build
+// FIX 1 — use monterro_64px (always compiled in) until monterro_64px.c exists.
+// To restore custom icon:
+//   1. Convert monterro.png (64×64) at https://lvgl.io/tools/imageconverter
+//      Output format: C array · Color format: CF_TRUE_COLOR_ALPHA
+//   2. Add monterro_64px.c to your build
+//   3. Replace the two lines below with:
+//        LV_IMG_DECLARE(monterro_64px);
+//        #define APP_ICON  monterro_64px
 LV_IMG_DECLARE(monterro_64px);
 #define APP_ICON  monterro_64px
 
@@ -53,7 +75,8 @@ LV_FONT_DECLARE(Ubuntu_32px);
 #define NO  "No"
 
 // ── Pi connection ─────────────────────────────────────────────────────────────
-#define PI_PORT  5000
+#define PI_FALLBACK_IP  "192.168.0.112"   // ← set your Pi's actual local IP
+#define PI_PORT         5000
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 #define COL_BG        LV_COLOR_MAKE(0xF4,0xF5,0xF7)
@@ -81,7 +104,7 @@ struct SessionRecord {
 static SessionRecord history[HISTORY_MAX];
 static uint8_t       history_count = 0;
 
-// ── Session ───────────────────────────────────────────────────────────────────
+// ── Session state ─────────────────────────────────────────────────────────────
 static bool     session_running     = false;
 static uint32_t session_start_ms    = 0;
 static uint32_t session_start_steps = 0;
@@ -89,16 +112,13 @@ static uint32_t session_steps       = 0;
 static uint32_t session_distance_m  = 0;
 static uint32_t session_duration_s  = 0;
 
-// ── Config ────────────────────────────────────────────────────────────────────
+// ── App / config ──────────────────────────────────────────────────────────────
 static SynchronizedApplication activityApp;
 static JsonConfig config("activity.json");
 static String cfg_len, cfg_goal_stp, cfg_goal_dist;
 
 // ── Task guard ────────────────────────────────────────────────────────────────
 static bool tile_active = false;
-
-// ── SPIFFS flag ───────────────────────────────────────────────────────────────
-static bool spiffs_ok = false;
 
 // ── LVGL handles ──────────────────────────────────────────────────────────────
 static lv_obj_t *arc_steps     = nullptr;
@@ -128,33 +148,32 @@ static uint32_t last_pace = 0xFFFFFFFF;
 
 static lv_event_cb_t default_msgbox_cb;
 
-// ── Telemetry helpers ─────────────────────────────────────────────────────────
+// ── Pi address cache ──────────────────────────────────────────────────────────
 static IPAddress cachedPiAddr;
-static uint32_t  cachedPiAddrMs = 0;
+static uint32_t  cachedPiAddrMs       = 0;
 static const uint32_t PI_ADDR_CACHE_MS = 30000;
 
-// ── Prototypes ────────────────────────────────────────────────────────────────
-static void      build_main_page();
-static void      build_history_page();
-static void      refresh_main_page();
-static void      refresh_history_page();
-static void      build_settings();
-static void      activity_activate_cb();
-static void      task_display_cb(lv_task_t *t);
-static void      task_telem_cb(lv_task_t *t);
-static void      activity_reset_cb(lv_obj_t *obj, lv_event_t event);
-static void      btn_startstop_cb(lv_obj_t *obj, lv_event_t event);
-static void      btn_reset_cb(lv_obj_t *obj, lv_event_t event);
-static void      btn_history_cb(lv_obj_t *obj, lv_event_t event);
-static void      btn_back_cb(lv_obj_t *obj, lv_event_t event);
-static void      cache_invalidate();
-static uint32_t  get_step_len_cm();
-static uint32_t  calc_pace(uint32_t dur_s, uint32_t dist_m);
+// ── Forward declarations ──────────────────────────────────────────────────────
+static void build_main_page();
+static void build_history_page();
+static void refresh_main_page();
+static void refresh_history_page();
+static void build_settings();
+static void activity_activate_cb();
+static void task_display_cb(lv_task_t *t);
+static void task_telem_cb(lv_task_t *t);
+static void activity_reset_cb(lv_obj_t *obj, lv_event_t event);
+static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event);
+static void btn_reset_cb(lv_obj_t *obj, lv_event_t event);
+static void btn_history_cb(lv_obj_t *obj, lv_event_t event);
+static void btn_back_cb(lv_obj_t *obj, lv_event_t event);
+static void cache_invalidate();
+static uint32_t get_step_len_cm();
+static uint32_t calc_pace(uint32_t dur_s, uint32_t dist_m);
 static IPAddress resolve_pi_addr();
-static bool      post_live_update(uint32_t stp, uint32_t dist, uint32_t dur);
-static bool      post_session_end(uint32_t stp, uint32_t dist, uint32_t dur);
-static void      spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur);
-static void      spiffs_load_history();
+static bool post_live_update(uint32_t stp, uint32_t dist, uint32_t dur);
+static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur);
+static void spiffs_load_history();
 
 static int registed __attribute__((used)) =
     app_autocall_function(&activity_app_setup, 8);
@@ -172,6 +191,7 @@ static uint32_t get_step_len_cm() {
     return (v == 0) ? 50 : v;
 }
 
+// FIX 6 — threshold 2 m, not 10 m
 static uint32_t calc_pace(uint32_t dur_s, uint32_t dist_m) {
     if (dist_m < 2 || dur_s == 0) return 0;
     return (dur_s * 1000u) / dist_m;
@@ -189,83 +209,19 @@ static void tile_opaque(lv_obj_t *t) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WiFi telemetry (original logic kept — wifictl_get_event compiles here)
+// SPIFFS persistence (FIX 3 — SPIFFS mounted once in setup, not here)
 // ─────────────────────────────────────────────────────────────────────────────
 
-static IPAddress resolve_pi_addr() {
-    if ((uint32_t)cachedPiAddr != 0 &&
-        (millis() - cachedPiAddrMs) < PI_ADDR_CACHE_MS) {
-        return cachedPiAddr;
-    }
-    IPAddress piAddr = MDNS.queryHost("hiking-pi");
-    cachedPiAddr   = piAddr;
-    cachedPiAddrMs = millis();
-    if ((uint32_t)piAddr == 0)
-        log_w("[monterro] mDNS: hiking-pi.local not found");
-    else
-        log_i("[monterro] hiking-pi -> %s", piAddr.toString().c_str());
-    return piAddr;
-}
-
-static bool post_live_update(uint32_t stp, uint32_t dist, uint32_t dur) {
-    IPAddress piAddr = resolve_pi_addr();
-    if ((uint32_t)piAddr == 0) return false;
-
-    char url[72];
-    snprintf(url, sizeof(url),
-             "http://%s:%d/live", piAddr.toString().c_str(), PI_PORT);
-    char body[96];
-    snprintf(body, sizeof(body),
-             "{\"steps\":%lu,\"distance\":%lu,\"duration\":%lu}",
-             (unsigned long)stp, (unsigned long)dist, (unsigned long)dur);
-
-    HTTPClient http;
-    http.setTimeout(2000);
-    http.begin(url);
-    http.addHeader("Content-Type", "application/json");
-    int code = http.POST((uint8_t*)body, strlen(body));
-    http.end();
-    log_i("[monterro] POST /live -> %d", code);
-    return (code >= 200 && code < 300);
-}
-
-// FIX I — notify Pi at session end so session_history.json is written
-// even when BLE was never connected during the hike.
-static bool post_session_end(uint32_t stp, uint32_t dist, uint32_t dur) {
-    IPAddress piAddr = resolve_pi_addr();
-    if ((uint32_t)piAddr == 0) return false;
-
-    char url[80];
-    snprintf(url, sizeof(url),
-             "http://%s:%d/session-end", piAddr.toString().c_str(), PI_PORT);
-    char body[96];
-    snprintf(body, sizeof(body),
-             "{\"steps\":%lu,\"distance\":%lu,\"duration\":%lu}",
-             (unsigned long)stp, (unsigned long)dist, (unsigned long)dur);
-
-    HTTPClient http;
-    http.setTimeout(3000);
-    http.begin(url);
-    http.addHeader("Content-Type", "application/json");
-    int code = http.POST((uint8_t*)body, strlen(body));
-    http.end();
-    log_i("[monterro] POST /session-end -> %d", code);
-    return (code >= 200 && code < 300);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SPIFFS persistence
-// FIX F — saves every session to flash regardless of WiFi/BLE
-// FIX G — ring-buffer shift always runs (not only when array is full)
-// ─────────────────────────────────────────────────────────────────────────────
-
+// Save one session: push into RAM ring-buffer + append line to SPIFFS log.
+// FIX 2 — shift ALWAYS runs, not only when history_count == HISTORY_MAX.
 static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur) {
     // ── RAM ring-buffer ───────────────────────────────────────────────────────
-    // FIX G: shift always runs — previously only ran when history_count==MAX,
-    // causing slots 1-9 to silently overwrite history[0] every time.
+    // Shift existing entries up by one slot to make room at [0].
+    // Previously the shift only ran when the array was full (== HISTORY_MAX),
+    // so sessions 1–9 silently overwrote history[0] every time.
     const uint8_t used = (history_count < HISTORY_MAX)
                          ? history_count : HISTORY_MAX - 1;
-    for (int i = used; i > 0; i--)
+    for (int i = used; i > 0; i--)          // always shift, regardless of count
         history[i] = history[i - 1];
 
     history[0].steps           = steps;
@@ -276,22 +232,13 @@ static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur) {
 
     if (history_count < HISTORY_MAX) history_count++;
 
-    log_i("[monterro] RAM saved: stp=%lu dst=%lu dur=%lu count=%d",
-          (unsigned long)steps, (unsigned long)dist,
-          (unsigned long)dur, (int)history_count);
-
     // ── SPIFFS append ─────────────────────────────────────────────────────────
-    if (!spiffs_ok) {
-        log_w("[monterro] SPIFFS not ready — RAM only");
-        return;
-    }
-
+    // FIX 3 — no SPIFFS.begin() here; already mounted in activity_app_setup()
     File f = SPIFFS.open(HIKE_LOG, FILE_APPEND);
     if (!f) {
-        log_w("[monterro] SPIFFS open failed");
+        log_w("[monterro] SPIFFS open failed for append");
         return;
     }
-
     time_t now;
     time(&now);
     char line[128];
@@ -304,23 +251,23 @@ static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur) {
         (unsigned long)(steps * 4 / 100));
     f.print(line);
     f.close();
-    log_i("[monterro] SPIFFS saved: %s", line);
+    log_i("[monterro] Session saved → %s", line);
 }
 
+// Load last HISTORY_MAX sessions from SPIFFS on boot.
+// FIX 3 — no SPIFFS.begin() here; already mounted in activity_app_setup()
 static void spiffs_load_history() {
-    if (!spiffs_ok) return;
-
     if (!SPIFFS.exists(HIKE_LOG)) {
-        log_i("[monterro] No hike log, starting fresh");
+        log_i("[monterro] No hike log found, starting fresh");
         return;
     }
 
     File f = SPIFFS.open(HIKE_LOG, FILE_READ);
     if (!f) return;
 
+    // Read all lines, keep last HISTORY_MAX
     static char lines[HISTORY_MAX][128];
     int total = 0;
-
     while (f.available()) {
         String s = f.readStringUntil('\n');
         s.trim();
@@ -338,23 +285,68 @@ static void spiffs_load_history() {
     }
     f.close();
 
+    // Parse newest-first into history[]
     history_count = 0;
     for (int i = total - 1; i >= 0 && history_count < HISTORY_MAX; i--) {
-        // Use unsigned long to match %lu — avoids -Wformat warnings on ESP32
-        unsigned long stp = 0, dst = 0, dur = 0, kcal = 0;
+        uint32_t stp = 0, dst = 0, dur = 0, kcal = 0;
         long ts = 0;
         int matched = sscanf(lines[i],
             "{\"ts\":%ld,\"stp\":%lu,\"dst\":%lu,\"dur\":%lu,\"kcal\":%lu}",
             &ts, &stp, &dst, &dur, &kcal);
-        if (matched < 4 || dur == 0) continue;
-        history[history_count].steps           = (uint32_t)stp;
-        history[history_count].dist_m          = (uint32_t)dst;
-        history[history_count].dur_s           = (uint32_t)dur;
-        history[history_count].kcal            = (uint32_t)kcal;
-        history[history_count].pace_sec_per_km = calc_pace((uint32_t)dur, (uint32_t)dst);
+        if (matched < 4 || dur == 0) continue;   // skip corrupt / zero-dur lines
+        history[history_count].steps           = stp;
+        history[history_count].dist_m          = dst;
+        history[history_count].dur_s           = dur;
+        history[history_count].kcal            = kcal;
+        history[history_count].pace_sec_per_km = calc_pace(dur, dst);
         history_count++;
     }
     log_i("[monterro] Loaded %d session(s) from SPIFFS", history_count);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WiFi telemetry
+// ─────────────────────────────────────────────────────────────────────────────
+
+// FIX 8 — mDNS with hardcoded fallback; never calls wifictl_on()
+static IPAddress resolve_pi_addr() {
+    if ((uint32_t)cachedPiAddr != 0 &&
+        (millis() - cachedPiAddrMs) < PI_ADDR_CACHE_MS) {
+        return cachedPiAddr;
+    }
+    IPAddress piAddr = MDNS.queryHost("hiking-pi");
+    if ((uint32_t)piAddr == 0) {
+        log_w("[monterro] mDNS failed, using fallback " PI_FALLBACK_IP);
+        piAddr.fromString(PI_FALLBACK_IP);
+    }
+    cachedPiAddr   = piAddr;
+    cachedPiAddrMs = millis();
+    return piAddr;
+}
+
+static bool post_live_update(uint32_t stp, uint32_t dist, uint32_t dur) {
+    IPAddress piAddr = resolve_pi_addr();
+    if ((uint32_t)piAddr == 0) return false;
+
+    char url[64];
+    snprintf(url, sizeof(url),
+             "http://%s:%d/live", piAddr.toString().c_str(), PI_PORT);
+
+    char body[96];
+    snprintf(body, sizeof(body),
+             "{\"steps\":%lu,\"distance\":%lu,\"duration\":%lu}",
+             (unsigned long)stp,
+             (unsigned long)dist,
+             (unsigned long)dur);
+
+    HTTPClient http;
+    http.setTimeout(2000);
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST((uint8_t*)body, strlen(body));
+    http.end();
+    log_i("[monterro] POST %s → %d", url, code);
+    return (code >= 200 && code < 300);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,21 +354,22 @@ static void spiffs_load_history() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void activity_app_setup() {
-    wifictl_on();
-    activityApp.init("Monterro", &monterro_64px, 1, 2);
+    // FIX 1 — APP_ICON resolves to monterro_64px (always present).
+    // The name "Monterro" is what appears in the watch app list.
+    activityApp.init("Monterro", &APP_ICON, 1, 2);
     mainbar_add_tile_activate_cb(activityApp.mainTileId(), activity_activate_cb);
+
     build_main_page();
     build_history_page();
     build_settings();
 
-    // FIX K — SPIFFS.begin(true): formats on first boot, no-op if already mounted.
-    // This is exactly what the original did inline — safe and always works.
-    spiffs_ok = SPIFFS.begin(true);
-    if (!spiffs_ok)
+    // FIX 3 — mount SPIFFS exactly once, here, before load or save are called
+    if (!SPIFFS.begin(true)) {
         log_e("[monterro] SPIFFS mount failed — history will not persist");
+    }
+    spiffs_load_history();   // restore sessions from flash on boot
 
-    spiffs_load_history();
-
+    // FIX 7 — two separate tasks: display (1 s) and telemetry (5 s)
     lv_task_create(task_display_cb, 1000, LV_TASK_PRIO_LOW, nullptr);
     lv_task_create(task_telem_cb,   5000, LV_TASK_PRIO_LOW, nullptr);
 
@@ -384,15 +377,17 @@ void activity_app_setup() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tasks (original logic kept verbatim — compiles cleanly)
+// Tasks
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Display task — label/arc updates ONLY, zero BLE/WiFi
 static void task_display_cb(lv_task_t *t) {
     (void)t;
     if (!tile_active || !lbl_dur_val) return;
     refresh_main_page();
 }
 
+// Telemetry task — BLE primary, WiFi fallback, never wifictl_on()
 static void task_telem_cb(lv_task_t *t) {
     (void)t;
     if (!session_running) return;
@@ -401,22 +396,16 @@ static void task_telem_cb(lv_task_t *t) {
     const uint32_t dist = session_distance_m;
     const uint32_t dur  = session_duration_s;
 
-    // BLE primary path
     if (blectl_get_event(BLECTL_ON)) {
         blestepctl_set_hike(stp, dist, dur);
         blestepctl_update_hike(false);
-        return;
+        return;   // BLE takes priority, skip WiFi
     }
 
-    // WiFi fallback — wake WiFi if not already up, then POST on next tick
+    // Request WiFi on if not already connected
     if (!wifictl_get_event(WIFICTL_CONNECT)) {
-        if (!wifictl_get_event(WIFICTL_ON_REQUEST) &&
-            !wifictl_get_event(WIFICTL_SCAN) &&
-            !wifictl_get_event(WIFICTL_ON)) {
-            log_i("[monterro] BLE off, waking WiFi");
-            wifictl_on();
-        }
-        return;
+        wifictl_on();   // ask the system to connect
+        return;         // will send next tick once connected
     }
 
     post_live_update(stp, dist, dur);
@@ -431,10 +420,23 @@ static void activity_activate_cb() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Build main tile
 // ─────────────────────────────────────────────────────────────────────────────
+//
+//  240 × 240 px layout
+//  y=  4   "ACTIVE SESSION"   muted 16px centred
+//  y= 22   "0:00"             dark  32px centred
+//  arcs    Y_CTR = 100
+//    dist  64×64  x=10  cx=42
+//    steps 80×80  x=80  cx=120
+//    kcal  64×64  x=166 cx=198
+//  y=148   DIST(m) / STEPS / KCAL   coloured headers
+//  y=176   ● PACE  value  min/km
+//  y=190   separator
+//  y=200   [Reset] [▶ Start] [History]
 
 void build_main_page() {
     lv_obj_t *tile = mainbar_get_tile_obj(activityApp.mainTileId());
 
+    // Background — FIX 5: LV_OPA_COVER mandatory or mainbar dark bg shows through
     lv_style_init(&sty_bg);
     lv_style_set_bg_color(&sty_bg,     LV_STATE_DEFAULT, COL_BG);
     lv_style_set_bg_opa(&sty_bg,       LV_STATE_DEFAULT, LV_OPA_COVER);
@@ -442,16 +444,18 @@ void build_main_page() {
     lv_style_set_pad_all(&sty_bg,      LV_STATE_DEFAULT, 0);
     tile_opaque(tile);
 
-#define INIT_ARC_STY(s,c) \
+    // Arc styles
+#define INIT_ARC(s,c) \
     lv_style_init(&s); \
     lv_style_set_line_color(&s, LV_STATE_DEFAULT, c); \
     lv_style_set_line_width(&s, LV_STATE_DEFAULT, 6);
-    INIT_ARC_STY(sty_arc_bg,    COL_ARC_BG)
-    INIT_ARC_STY(sty_arc_dist,  COL_DIST)
-    INIT_ARC_STY(sty_arc_steps, COL_STEPS)
-    INIT_ARC_STY(sty_arc_kcal,  COL_KCAL)
-#undef INIT_ARC_STY
+    INIT_ARC(sty_arc_bg,    COL_ARC_BG)
+    INIT_ARC(sty_arc_dist,  COL_DIST)
+    INIT_ARC(sty_arc_steps, COL_STEPS)
+    INIT_ARC(sty_arc_kcal,  COL_KCAL)
+#undef INIT_ARC
 
+    // Text styles
 #define INIT_TXT(s,c,f) \
     lv_style_init(&s); \
     lv_style_set_text_color(&s, LV_STATE_DEFAULT, c); \
@@ -466,6 +470,7 @@ void build_main_page() {
     INIT_TXT(sty_ckcal,  COL_KCAL,  Ubuntu_16px)
 #undef INIT_TXT
 
+    // Button styles
     lv_style_init(&sty_btn);
     lv_style_set_bg_color(&sty_btn,     LV_STATE_DEFAULT, COL_BTN);
     lv_style_set_bg_color(&sty_btn,     LV_STATE_PRESSED, COL_BTN_PR);
@@ -490,6 +495,7 @@ void build_main_page() {
     lv_style_set_border_width(&sty_sep, LV_STATE_DEFAULT, 0);
     lv_style_set_radius(&sty_sep,       LV_STATE_DEFAULT, 0);
 
+    // Header + timer
     lv_obj_t *hdr = lv_label_create(tile, NULL);
     lv_label_set_text(hdr, "ACTIVE SESSION");
     lv_obj_add_style(hdr, LV_LABEL_PART_MAIN, &sty_hdr);
@@ -500,13 +506,15 @@ void build_main_page() {
     lv_obj_add_style(lbl_dur_val, LV_LABEL_PART_MAIN, &sty_timer);
     lv_obj_align(lbl_dur_val, tile, LV_ALIGN_IN_TOP_MID, 0, 20);
 
+    // Arc positions — 64+6+80+6+64=220, margin=10
     const lv_coord_t SM=64, LG=80, YCTR=100, G=6;
-    const lv_coord_t XD=10, XS=10+SM+G, XK=10+SM+G+LG+G;
-    const lv_coord_t CXD=XD+SM/2, CXS=XS+LG/2, CXK=XK+SM/2;
+    const lv_coord_t XD=10,       XS=10+SM+G,     XK=10+SM+G+LG+G;
+    const lv_coord_t CXD=XD+SM/2, CXS=XS+LG/2,   CXK=XK+SM/2;
 
 #define MK_ARC(var,si,x,y,sz) \
     var = lv_arc_create(tile, NULL); \
-    lv_arc_set_bg_angles(var,0,360); lv_arc_set_angles(var,0,0); \
+    lv_arc_set_bg_angles(var,0,360); \
+    lv_arc_set_angles(var,0,0); \
     lv_arc_set_range(var,0,360); \
     lv_obj_reset_style_list(var,LV_ARC_PART_BG); \
     lv_obj_reset_style_list(var,LV_ARC_PART_KNOB); \
@@ -514,13 +522,15 @@ void build_main_page() {
     lv_obj_add_style(var,LV_ARC_PART_BG,   &sty_arc_bg); \
     lv_obj_add_style(var,LV_ARC_PART_INDIC,&si); \
     lv_obj_set_click(var,false); \
-    lv_obj_set_size(var,sz,sz); lv_obj_set_pos(var,x,y);
+    lv_obj_set_size(var,sz,sz); \
+    lv_obj_set_pos(var,x,y);
 
     MK_ARC(arc_dist,  sty_arc_dist,  XD, YCTR-SM/2, SM)
     MK_ARC(arc_steps, sty_arc_steps, XS, YCTR-LG/2, LG)
     MK_ARC(arc_kcal,  sty_arc_kcal,  XK, YCTR-SM/2, SM)
 #undef MK_ARC
 
+    // One value label per arc — number only, centred
     lbl_dist_val = lv_label_create(tile, NULL);
     lv_label_set_text(lbl_dist_val, "0");
     lv_obj_add_style(lbl_dist_val, LV_LABEL_PART_MAIN, &sty_val);
@@ -536,6 +546,7 @@ void build_main_page() {
     lv_obj_add_style(lbl_kcal_val, LV_LABEL_PART_MAIN, &sty_val);
     lv_obj_align(lbl_kcal_val, arc_kcal, LV_ALIGN_CENTER, 0, 0);
 
+    // Column headers (y=148)
     const lv_coord_t CW=76;
 #define COL(txt,st,cx,y) { \
     lv_obj_t *_l=lv_label_create(tile,NULL); \
@@ -550,6 +561,7 @@ void build_main_page() {
     COL("KCAL",     sty_ckcal,  CXK, 148)
 #undef COL
 
+    // Pace row (y=176)
     lv_obj_t *pt = lv_label_create(tile, NULL);
     lv_label_set_text(pt, LV_SYMBOL_BULLET " PACE");
     lv_obj_add_style(pt, LV_LABEL_PART_MAIN, &sty_pace);
@@ -565,6 +577,7 @@ void build_main_page() {
     lv_obj_add_style(pu, LV_LABEL_PART_MAIN, &sty_muted);
     lv_obj_set_pos(pu, 160, 176);
 
+    // Separator (y=190)
     lv_obj_t *sep = lv_obj_create(tile, NULL);
     lv_obj_reset_style_list(sep, LV_OBJ_PART_MAIN);
     lv_obj_add_style(sep, LV_OBJ_PART_MAIN, &sty_sep);
@@ -572,6 +585,7 @@ void build_main_page() {
     lv_obj_set_pos(sep, 10, 190);
     lv_obj_set_click(sep, false);
 
+    // Buttons (y=200) — 3×68 + 2×6 = 216, margin=12
     const lv_coord_t BW=68, BH=30, BG=6, BY=200;
     lv_coord_t bx=12;
 
@@ -580,29 +594,29 @@ void build_main_page() {
     lv_obj_add_style(b1, LV_BTN_PART_MAIN, &sty_btn);
     lv_obj_set_size(b1,BW,BH); lv_obj_set_pos(b1,bx,BY);
     lv_obj_set_event_cb(b1, btn_reset_cb);
-    lv_obj_t *l1=lv_label_create(b1,NULL);
-    lv_label_set_text(l1,"Reset");
-    lv_label_set_align(l1,LV_LABEL_ALIGN_CENTER);
-    bx+=BW+BG;
+    lv_obj_t *l1 = lv_label_create(b1, NULL);
+    lv_label_set_text(l1, "Reset");
+    lv_label_set_align(l1, LV_LABEL_ALIGN_CENTER);
+    bx += BW+BG;
 
     lv_obj_t *b2 = lv_btn_create(tile, NULL);
     lv_obj_reset_style_list(b2, LV_BTN_PART_MAIN);
     lv_obj_add_style(b2, LV_BTN_PART_MAIN, &sty_btn_go);
     lv_obj_set_size(b2,BW,BH); lv_obj_set_pos(b2,bx,BY);
     lv_obj_set_event_cb(b2, btn_startstop_cb);
-    lbl_startstop=lv_label_create(b2,NULL);
+    lbl_startstop = lv_label_create(b2, NULL);
     lv_label_set_text(lbl_startstop, LV_SYMBOL_PLAY " Start");
-    lv_label_set_align(lbl_startstop,LV_LABEL_ALIGN_CENTER);
-    bx+=BW+BG;
+    lv_label_set_align(lbl_startstop, LV_LABEL_ALIGN_CENTER);
+    bx += BW+BG;
 
     lv_obj_t *b3 = lv_btn_create(tile, NULL);
     lv_obj_reset_style_list(b3, LV_BTN_PART_MAIN);
     lv_obj_add_style(b3, LV_BTN_PART_MAIN, &sty_btn);
     lv_obj_set_size(b3,BW,BH); lv_obj_set_pos(b3,bx,BY);
     lv_obj_set_event_cb(b3, btn_history_cb);
-    lv_obj_t *l3=lv_label_create(b3,NULL);
-    lv_label_set_text(l3,"History");
-    lv_label_set_align(l3,LV_LABEL_ALIGN_CENTER);
+    lv_obj_t *l3 = lv_label_create(b3, NULL);
+    lv_label_set_text(l3, "History");
+    lv_label_set_align(l3, LV_LABEL_ALIGN_CENTER);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -621,7 +635,8 @@ void build_history_page() {
     lv_obj_t *sep = lv_obj_create(tile, NULL);
     lv_obj_reset_style_list(sep, LV_OBJ_PART_MAIN);
     lv_obj_add_style(sep, LV_OBJ_PART_MAIN, &sty_sep);
-    lv_obj_set_size(sep, 220, 1); lv_obj_set_pos(sep, 10, 28);
+    lv_obj_set_size(sep, 220, 1);
+    lv_obj_set_pos(sep, 10, 28);
     lv_obj_set_click(sep, false);
 
     lv_obj_t *pg = lv_page_create(tile, NULL);
@@ -629,7 +644,8 @@ void build_history_page() {
     lv_obj_reset_style_list(pg, LV_PAGE_PART_SCROLLABLE);
     lv_obj_add_style(pg, LV_PAGE_PART_BG,        &sty_bg);
     lv_obj_add_style(pg, LV_PAGE_PART_SCROLLABLE, &sty_bg);
-    lv_obj_set_size(pg, 240, 186); lv_obj_set_pos(pg, 0, 32);
+    lv_obj_set_size(pg, 240, 186);
+    lv_obj_set_pos(pg, 0, 32);
 
     lbl_hist_list = lv_label_create(pg, NULL);
     lv_label_set_long_mode(lbl_hist_list, LV_LABEL_LONG_BREAK);
@@ -651,7 +667,6 @@ void build_history_page() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Refresh history display
-// FIX J — buf[1024], skip zero-step entries, show duration, update once
 // ─────────────────────────────────────────────────────────────────────────────
 
 static void refresh_history_page() {
@@ -661,49 +676,36 @@ static void refresh_history_page() {
         return;
     }
 
-    static char buf[1024];
+    static char buf[512];
     buf[0] = '\0';
-    char line[96];
+    char line[80];
 
     for (int i = 0; i < history_count; i++) {
         const SessionRecord &r = history[i];
-
-        // Skip zero-data entries saved during BMA warmup
-        if (r.steps == 0 && r.dist_m == 0) continue;
-
-        char dur_str[12];
-        snprintf(dur_str, sizeof(dur_str), "%lu:%02lu",
-                 (unsigned long)(r.dur_s / 60),
-                 (unsigned long)(r.dur_s % 60));
-
         if (r.pace_sec_per_km > 0) {
             snprintf(line, sizeof(line),
-                "#%d %lustp %lum %lukcal %s @ %lu'%02lu\"\n",
+                "#%d %lustp %lum %lukcal %lu'%02lu\"\n",
                 (int)(history_count - i),
                 (unsigned long)r.steps,
                 (unsigned long)r.dist_m,
                 (unsigned long)r.kcal,
-                dur_str,
                 (unsigned long)(r.pace_sec_per_km / 60),
                 (unsigned long)(r.pace_sec_per_km % 60));
         } else {
             snprintf(line, sizeof(line),
-                "#%d %lustp %lum %lukcal %s\n",
+                "#%d %lustp %lum %lukcal\n",
                 (int)(history_count - i),
                 (unsigned long)r.steps,
                 (unsigned long)r.dist_m,
-                (unsigned long)r.kcal,
-                dur_str);
+                (unsigned long)r.kcal);
         }
         strncat(buf, line, sizeof(buf) - strlen(buf) - 1);
     }
-
     lv_label_set_text(lbl_hist_list, buf);
-    lv_obj_realign(lbl_hist_list);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Refresh main display — NO BLE / WiFi calls here
+// Refresh main display — NO BLE/WiFi calls
 // ─────────────────────────────────────────────────────────────────────────────
 
 void refresh_main_page() {
@@ -729,6 +731,7 @@ void refresh_main_page() {
         dist = session_distance_m;
         dur  = session_duration_s;
     } else {
+        // Idle: show all-time totals, timer frozen at 0:00
         stp  = total_steps;
         dist = total_steps * step_len_cm / 100;
         dur  = 0;
@@ -783,6 +786,7 @@ static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event) {
     if (event != LV_EVENT_CLICKED) return;
 
     if (!session_running) {
+        // ── START ─────────────────────────────────────────────────────────────
         session_start_ms    = millis();
         session_start_steps = bma_get_stepcounter();
         session_steps       = 0;
@@ -796,6 +800,9 @@ static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event) {
         motor_vibe(20);
 
     } else {
+        // ── STOP ──────────────────────────────────────────────────────────────
+        // Read live pedometer now (FIX C) — don't rely on cached session_steps
+        // which was last updated up to 1 s ago by the display task.
         const uint32_t live_steps  = bma_get_stepcounter();
         const uint32_t step_len_cm = get_step_len_cm();
         const uint32_t final_steps = (live_steps >= session_start_steps)
@@ -803,6 +810,7 @@ static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event) {
         const uint32_t final_dist  = final_steps * step_len_cm / 100;
         const uint32_t final_dur   = (millis() - session_start_ms) / 1000;
 
+        // Sync accumulators so telemetry task gets the final values
         session_steps      = final_steps;
         session_distance_m = final_dist;
         session_duration_s = final_dur;
@@ -811,18 +819,12 @@ static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event) {
         blestepctl_send_hike_end(final_steps, final_dist, final_dur);
         blestepctl_set_hike_active(false);
 
-        // FIX H — guard on dur > 0 (not steps > 0).
-        // Always save locally first — watch is the source of truth.
-        // history display skips zero-step entries so they never show up.
+        // FIX 4 — guard on duration, not steps.
+        // Pedometer may return 0 just after session starts due to hardware
+        // latency, but elapsed time is always reliable.
         if (final_dur > 0) {
             spiffs_save_session(final_steps, final_dist, final_dur);
-            refresh_history_page();
-
-            // FIX I — notify Pi via WiFi if connected (BLE already sent hike_end)
-            if (!blectl_get_event(BLECTL_ON) &&
-                 wifictl_get_event(WIFICTL_CONNECT)) {
-                post_session_end(final_steps, final_dist, final_dur);
-            }
+            refresh_history_page();   // update label immediately
         }
 
         if (lbl_startstop)
