@@ -1,23 +1,12 @@
 <?php
-/**
- * post-live.php — Monterro live tick endpoint
- * Place at: /var/www/html/monterro/post-live.php
- *
- * Called by activity.cpp → post_live_update() every 5 s via HTTP POST.
- * Form fields:  api_key, steps, distance, duration
- *
- * Actions:
- *   1. Validate API key
- *   2. Insert row into live_data
- *   3. Broadcast live_update to Supabase Realtime (dashboard receives it)
- */
+/* © 2026 Monterro · Fathia & Bintang. All rights reserved. */
 
 // ── Configuration ────────────────────────────────────────────────────────────
-define('API_KEY',       'monterro2026');        // must match PI_API_KEY in activity.cpp
+define('API_KEY',       'monterro2026');        
 define('DB_HOST',       'localhost');
 define('DB_NAME',       'monterro');
 define('DB_USER',       'monterro');
-define('DB_PASS',       'monterro_pass');       // change to match setup_db.sql
+define('DB_PASS',       'monterro_pass');      
 
 define('SUPABASE_URL',  'https://sudlejmejjlairgxdlzi.supabase.co');
 define('SUPABASE_KEY',  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
@@ -106,11 +95,8 @@ $sb_result = curl_exec($ch);
 $sb_code   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-// ── Mirror live state to Supabase DB (for dashboard page-load hydration) ────
-// Dashboard on Vercel (HTTPS) can't fetch from Pi (HTTP) due to mixed content.
-// Writing to Supabase DB here lets loadFromPi() query Supabase directly instead.
 $sb_row = json_encode([
-    'id'         => 1,   // single row — always upsert row 1
+    'id'         => 1,  
     'steps'      => $steps,
     'distance'   => $distance,
     'duration'   => $duration,
