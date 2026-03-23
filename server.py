@@ -1,3 +1,5 @@
+# © 2026 Monterro · Fathia & Bintang. All rights reserved.
+
 from __future__ import annotations
 
 import asyncio
