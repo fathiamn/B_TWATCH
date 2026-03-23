@@ -1,16 +1,5 @@
 <?php
-/**
- * get-current.php
- *
- * This file is what the dashboard calls when you first open the page.
- * Instead of waiting for the watch to send something, it just reads the
- * latest data straight from the database and returns it all at once so
- * the cards populate immediately.
- *
- * It returns four things: the latest live tick, the most recent finished
- * session, the full session history, and whether the watch is currently
- * connected (defined as a live tick arriving within the last 30 seconds).
- */
+/* © 2026 Monterro · Fathia & Bintang. All rights reserved. */
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -20,8 +9,8 @@ header('Access-Control-Allow-Methods: GET');
 define('DB_HOST',       'localhost');
 define('DB_NAME',       'monterro');
 define('DB_USER',       'monterro');
-define('DB_PASS',       'monterro_pass');  // match setup_db.sql
-define('CONNECTED_TTL', 30);              // seconds — live tick freshness window
+define('DB_PASS',       'monterro_pass');  
+define('CONNECTED_TTL', 30);              
 define('HISTORY_MAX',   10);
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -34,7 +23,6 @@ if ($conn->connect_error) {
 }
 
 // ── Live state ────────────────────────────────────────────────────────────────
-// Most recent live_data row. session_active = true only when fresh.
 $live = [
     'steps'          => 0,
     'distance'       => 0,
