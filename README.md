@@ -163,12 +163,7 @@ alter publication supabase_realtime add table live_snapshot;
 alter publication supabase_realtime add table session_history;
 ```
 
-**Step 5** — In `dashboard.html`, update the Supabase credentials with your own project values:
 
-```javascript
-const SUPABASE_URL = "https://your-project-id.supabase.co";
-const SUPABASE_KEY = "your-anon-public-key";
-```
 
 ---
 
