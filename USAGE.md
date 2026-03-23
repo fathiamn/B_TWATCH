@@ -1,339 +1,714 @@
-# Main screen
+1. Introduction 
 
-![screenshot](images/screen1.png)
+1.1 Product Description and Purpose 
 
-On startup you see the main screen (time tile). It shows the time and widgets.
+This project, Monterro, uses the LILYGO T-Watch-2020 as a smart hiking assistant designed for hiking and trail activities with Raspberry Pi 400 as a data processing and web server unit. The watch displays the user's live statistics, including step counter, step-to-distance counter, number of calories burned, pace, and route records history with line graph visualization. The watch firmware was built on PlatformIO and LVGL. This data is synchronized to Raspberry Pi via Bluetooth Low Energy (BLE) and/or Wi-Fi, then it is displayed on a Monterro web dashboard that can be accessible from any browser on the local network. 
 
-Widgets are:
+1.2 Product Features 
 
-* the current weather (if correctly configured).
-* the next alarm.
-* the notifications.
+ *Counted step is displayed as real-time data on the watch screen 
+ *Automatic distance conversion from steps to distance in meters (and kilometers) 
+ *Calories burned calculation based on the steps and distances taken 
+ *Session history saved on Raspberry Pi and displayed on the live web dashboard as a line diagram 
+ *Web dashboard that displayed real-time updated data and last session history 
+ *Data synchronization via Bluetooth Low Energy (main channel) 
+ *Data synchronization via Wi-Fi HTTP POST 
 
-# Screen Navigation
+2. What to Prepare Before Starting 
 
- You can swipe with you fingers up, down, left and right between the four main screens. The four screens are organized in time, apps, note and setup tile.
+2.1 Hardware 
 
-# Quick Settings
+Mandatory hardware to prepare before starting: 
+ *LilyGo T-Watch 2020 V2 
+ *Raspberry Pi 400 with power adapter, SD card, and HDMI cable 
+ *USB cable (USB-A to micro-USB) 
+ *Wi-Fi router, ensure that both devices connected to the same local network 
 
-![screenshot](images/screen2.png)
+2.2 Software 
 
-A subset of settings can be accessed via a swipe from the top of the screen.
+Before running the system, put both Raspberry Pi and watch on the same Wi-Fi connection. BLE will be automatically connected when you pair the Raspberry Pi and the watch or verify with:  
 
-# Settings
+bluetoothctl scan on 
 
-![screenshot](images/screen3.png)
-![screenshot](images/screen4.png)
+It can be verified that the Raspberry Pi already connected with the watch if watch MAC address appears 08:3A:F2:69:AA:96. 
 
-Once a setting is selected, you can leave the form with the exit button.
+To connect to the website backend server, run this command: 
 
-## Battery
+home/YOUR_RASPBERRYPI_USER/YOUR_FILE_NAME/python3 server.py 
 
-Battery status.
+2.3 Dashboard 
 
-## Display
+If you want to see the updates on Monterro website, go to this website and create your account. The website will direct you automatically to the dashboard. The same data will be displayed on both watch and website: https://monterro.vercel.app/35 
 
-Set color, background, touch feedback with vibrations...
+3. Using the Watch 
+![Manual](./manual.png)
+1.  Watch home screen, swipe left to find the menu screen 
+2. Menu screen, the Hiking Tour Assistant can be found by pressing the “Monterro” app 
+3. Press “Start” to start the hiking session.  
+4. You will see the “Active Session” duration is counting along with the distance, steps, and calories burned 
+5. When you are no longer opening the Monterro app, the steps update is shown on the upper toolbar 
+6. Press “Reset” to reset the counter back to 0, then press “Yes” 
+7. You can also press the “History” button to see your last routes data. Then press the exit icon in the upper-left side of the screen 
 
-![screenshot](images/display_1.png)
-![screenshot](images/display_2.png)
+3.1 Turning the Watch ON and OFF 
+ *Hold the crown (side button) for 2 seconds to turn the watch on 
+ *Hold the crown for 2 seconds to turn the watch off 
 
-## Touch
+3.2 Watch Navigation 
 
-Touch calibration menu.
+You can use the watch using a swipe and tap gesture.
 
-![screenshot](images/touch1.png)
-![screenshot](images/touch2.png)
+| Gesture     | Action                    |
+|-------------|---------------------------|
+| Tap         | Confirm or select button  |
+| Swipe Right | Go to next screen         |
+| Swipe Left  | Go to previous screen     |
+| Swipe Down  | Open control center       |
 
-## Move
+3.3 Starting a Session 
 
-Enable:
+The following are the steps to record your activity via Monterro watch app 
+ *Swipe left from the clock screen to find the Monterro watch app (bottom left) 
+ *Tap the START button 
+ *The duration will start to count up (in seconds unit) 
+ *You will see STEPS, DISTANCE (km), and DURATION counting in real time, along with the conversion to CALORIES (kcal) and PACE 
+ *Start hiking and the watch records your steps automatically via the built-in accelerometer 
 
-* step counter
-* double click
-* tilt
-* display of step counter
+3.4 Activity Guide
 
-The stepcounter value is published to [gadgetbridge](https://gadgetbridge.org) automatically if bluetooth is enabled.
-The frequency of publication is driven by gadgetbridge.
-Initially, it is on a 30 minutes frequency.
-When the realtime tab of gadgetbridge is selected, the frequency is set to every 5 seconds.
-If the watch lost contact with gadgetbridge for more than 30 minutes, the stepcounter is also refreshed when bluetooth is reconnected.
+| Displayed Variable | Description |
+|--------------------|-------------|
+| STEPS | Total steps taken in the session |
+| DISTANCES | Converted steps to meters or kilometers |
+| CALORIES | Converted steps to kcal |
+| DURATION | Time elapsed since START button is pressed (MM:SS) |
+| PACE | How long is your pace to reach one kilometer |
+ 
+3.5 Stopping a Session 
 
-![screenshot](images/move.png)
+The following are the steps to stop your recording via Monterro watch app 
+ *Tap the red STOP button on the Monterro app 
+ *Final session data (steps, distance, duration) is sent to the Raspberry Pi 
+ *The Raspberry Pi calculates calories burned and saves the session 
+ *The dashboard updates with the complete session summary 
+ 
+3.6 Resetting the Step Counter  
 
-## Bluetooth
+The following are the steps to reset your recording via Monterro watch app 
+ *Tap the RESET button on the Monterro screen 
+ *Tap Yes to confirm in the notification dialog 
+ *All session counters reset to zero 
+ *As long as you are not pressing STOP, the recording will still be ongoing even though you are no longer opening the application 
 
-The bluetooth notification work with [gadgetbridge](https://gadgetbridge.org) very well. But keep in mind, bluetooth in standby reduces the battery runtime.
+4. Website Dashboard
 
-![screenshot](images/bluetooth.png)
+![LandingPage](./landingpage.png)
 
-## WiFi
+4.1 Landing Page 
 
-![screenshot](images/screen5.png)
+1. Home page/landing page
+2. Navigate to dashboard page
+3. Navigate (auto-scroll) to sign-up page 
+4. Get started button: Navigate (auto-scroll) to log in
+5. Log in page
+6. Create account: changes the page to sign-up page
 
-## Time
+The Monterro website’s landing page shows a welcoming message along with the log in or sign-up message. When you press “Get Started” button, it will direct you to auto-scroll to the log in button with an option to create an account. After account is created, it will directly send you to the dashboard page, where you can access the live session and last history session from the watch. You can also directly go to the dashboard from the toolbar that is located above the website page. 
 
-* Enable synchronisation when connect
-* Display 12/24 hours
-* Select region and location
+4.2 Dashboard Page 
 
-![screenshot](images/time.png)
+![dashboard](./dashboard.png)
 
-## Updates
+1. Home: Navigate back to landing page 
+2. Connection indicator whether the watch is connected or disconnected 
+3. Live session: Displays current step, distance, duration, and calories burned 
+4. Last session: Displays the saved last live data 
+5. Summary: Displays the calories burned so far and distance recap based on the session history every time the user resets the session 
 
-It is possible to update over the air.
+The dashboard shows some important informations, including: 
+ *Live Session: Shows step count, distance, and duration of the current session 
+ *Last Session: Shows step, distance, duration, and calories burned from the last updated session 
+ *Summary: Shows calories burned from last updated session and distance recap every time you stop the recording. 
 
-![screenshot](images/update_1.png)
-![screenshot](images/update_2.png)
+5. Troubleshooting 
 
-## Utilities
+Problem 
 
-* Format
-* Reboot
-* Poweroff
-* GPS injection
+Solution 
 
-![screenshot](images/utilities.png)
+Dashboard not loading 
 
-## Sound 
+Check if server.py is running on RPi, check if both RPi and watch connected on the same Wi-Fi address 
 
-* Enable sound
-* Set volume
+Dashboard not updating 
 
-![screenshot](images/sound.png)
+Check supabase credential in app,py, try refreshing the page 
 
-## GPS
+Watch not connected to BLE 
 
-![screenshot](images/screen11.png)
+Do bluetoothctl scan and ensure watch MAC address is available on the listed device, turn the watch’s Bluetooth on and off again 
 
-## Watchfaces
+Watch rebooting 
 
-If you want to customize your own watchface, copy a ![watchface.tar.gz](images/watchface/undone/watchface.tar.gz) to your watch and decompress it with the watchface app.
+Watch is outside the BLE range or both Wi-Fi and BLE are on and crashing at the same time. Use either BLE or Wi-Fi if the booting is still happening 
 
-A `watchface.tar.gz` includes the following files and a extra `watchface_theme.json`. Some example:
+Upload to watch fail 
 
-![dial](images/watchface/watchface_dial.png)
-![hour](images/watchface/watchface_hour.png)
-![min](images/watchface/watchface_min.png)
-![sec](images/watchface/watchface_sec.png)
-![hour shadow](images/watchface/watchface_hour_s.png)
-![min shadow](images/watchface/watchface_min_s.png)
-![sec shadow](images/watchface/watchface_sec_s.png)
+Hold crown button before uploading, ensure the watch is ON, ensure you use the right RPi port (ACM0 or ACM1) 
 
-In the file `watchface_theme.json` you will describe the position of information via the `label` or 'image' node. See Cf. [here](WATCHFACE.md) for a node list.
-Here you can find some finish watchface packages:
+Duration and steps are not counting 
 
-[![swiss clock](images/watchface/swiss/watchface_theme_prev.png)](images/watchface/swiss/watchface.tar.gz)
-[![undone clock](images/watchface/undone/watchface_theme_prev.png)](images/watchface/undone/watchface.tar.gz)
-[![star trek clock](images/watchface/startrek/watchface_theme_prev.png)](images/watchface/startrek/watchface.tar.gz)
-[![rainbow clock](images/watchface/rainbow/watchface_theme_prev.png)](images/watchface/rainbow/watchface.tar.gz)
-[![hal9000](images/watchface/hal9000/watchface_theme_prev.png)](images/watchface/hal9000/watchface.tar.gz)
-[![black](images/watchface/black/watchface_theme_prev.png)](images/watchface/black/watchface.tar.gz)
+Ensure the session is STARTED, wear the watch properly and start walking 
 
-alternative [watchfaces](https://github.com/PGNetHun/PG-TTGO-Watchfaces)
+Test Plan  
 
-# Applications
+Overview 
 
-![screenshot](images/screen7.png)
+The purpose of this test plan is to verify the whole functional requirements in the Software Requirement Specification document of the Hiking Tour Assistant are working well and correctly implemented. This test applies two techniques from the Real-Time Systems: Design and Analysis (Chapter 8). The first one is black-box testing, which is used to verify each requirement from the outside. The user will give an input or action, observe the output, and identify whether it matches the requirement. Furthermore, the system integration testing is used to verify the watch, Raspberry Pi, and website dashboard to correctly run together as a one system. 
 
-## weather app
+Environment 
 
-![screenshot](images/screen10.png)
+Watch: LilyGo T-Watch 2020 V2 with Monterro firmware flashed via PlatformIO 
 
-For the weather app you need an openweather.com api-id. http://openweathermap.org/appid is a good starting point.
+Raspberry Pi: Running server.py with Flask  
 
-## Stopwatch
+Browser: Chrome or Firefox on same WiFi network 
 
-![screenshot](images/stopwatch.png)
+Other tools: Powershell command prompt 
 
-Click play to start.
+Black-Box Testing 
 
-## Alarm
+This kind of testing will check only the inputs and outputs without identifying or looking at the internal implementation (process). For this case, two sub-techniques such as worst-case test and boundary-values test are applied. 
 
-![screenshot](images/alarm.png)
+Worst-Case Tests 
 
-You can set an alarm, by setting time and day(s) of the week.
+This test checks the scenarios that are probably unlikely, but critical to handle. 
 
-The main switch controls if alarm is enabled or not.
+ 
 
-Next, select the day(s) of the week for the alarm.
-Note that if no days are select, it means an every day alarm.
-Finally, select the hour and minute for the alarm.
+ID 
 
-In the settings, you can select the reminder: vibe, fade, beep.
-You can also have the next alarm displayed on the main face.
+REQ 
 
-## ir-remote
+Scenario 
 
-For customise your ir-codes, use [WConfigurator](https://github.com/anakod/WConfigurator). For an example ir-remote.json configuration file see [here](https://github.com/d03n3rfr1tz3/TTGO.T-Watch.2020/blob/master/conf/ir-remote.json.example).
+Expected Behavior 
 
-```json
-{
-    "pages": [{
-            "Power": {
-                "m": 7,
-                "hex": "E0E040BF"
-            },
-            .
-            .
-            .
-            "Stop": {
-                "m": 7,
-                "hex": "E0E0629D"
-            }
-        }
-    ],
-    "defBtnHeight": 33,
-    "defBtnWidth": 65,
-    "defSpacing": 2
-}
-```
+Pass/Fail 
 
-IR-modes supported:
+WC-01 
 
-RC5 = 1, 
-RC6 = 2,
-NEC = 3,
-SONY = 4,
-PANASONIC = 5,
-JVC = 6,
-SAMSUNG = 7,
-LG = 10,
-SHARP = 14,
-RAW = 30,
-SAMSUNG36 = 56
+REQ-10, REQ-11 
 
-IR-data format supported:
+BLE drops in the middle of session 
 
-raw,
-hex
+WiFi fallback activates on next 5-second cycle. Watch keeps recording steps. No reboot. 
 
-## watchface
+ 
 
-This application let you download community based watch faces.
-Browse watch face with left/right button.
-Clic on the icon when you find yours.
+WC-02 
 
-Here you can find an overview of all [watchfaces](https://sharandac.github.io/My-TTGO-Watchfaces/) on github.
+REQ-10, REQ-11 
 
-Note that the information are downloaded in real time (remember to activate WiFi):
+Both BLE and WiFi unavailable 
 
-* The list of watchfaces.
-* The preview of each watch.
+Session saved locally to SPIFFS on watch, no data loss 
 
-## OSMmap
+ 
 
-![screenshot](images/screen9.png)
-![maps](images/osmmap_maps.png)
-![menu](images/osmmap_menu.png)
-![navigation](images/osmmap_navigation.png)
+WC-03 
 
-A long press in the middle centers the map to the current gps position.
+REQ-10 
 
-## OSMAnd
+RPi crashes in the middle of session 
 
-![screenshot](images/screen6.png)
+server.py reconnects to watch BLE within 15 seconds (BLE_RETRY_DELAY = 15s). last_session.json intact on restart. 
 
-In connection with [OsmAnd](https://osmand.net) the watch can also be used for navigation. Please use the osmand app, otherwise a lot of messages will be displayed.
+ 
 
-## gps tracker
+WC-04 
 
-![screenshot](images/tracker1.png)
-![screenshot](images/tracker2.png)
+REQ-9 
 
-gps tracker that generates .gpx files. Only works properly with watches that have GPS. A long press on the crosshairs starts and stops the logging. The .gpx files can be downloaded via FTP and imported directly into e.g. GoogleMaps or OSM. The trash icon deletes all files to save space.
+Session runs 2 hours non-stop 
 
-## gps status
+Watch does not reboot. LVGL renders correctly. No stack overflow across all FreeRTOS tasks. 
 
-![screenshot](images/gps_status.png)
+ 
 
-## astro
+ 
 
-![screenshot](images/astro.png)
+Boundary-Value Tests 
 
-## powermeter
+This technique checks the edges or thresholds of the input, which becomes the values that are most likely to expose bugs. 
 
-![screenshot](images/powermeter.png)
+ 
 
-Get realtime data from a [powermeter](https://github.com/sharandac/powermeter) over mqtt.
+ID 
 
-## wfif mon
+REQ 
 
-![screenshot](images/wifi_mon.png)
+Module 
 
-## Activity tracker
+Input / Condition 
 
-![screenshot](images/screen12.png)
+Expected Result 
 
-The activity tracker let you check your activity.
+Pass/Fail 
 
-In the settings, set your step length and your goals in step and meters.
+BV-01 
 
-When associated to Gadgetbrige, activity is reported regularly.
-If you need to ensure a synchronization, for example at the beginning of an activity or at the end, you can use the refresh button.
-It will force a synchronization.
+REQ-8 
 
-The trash can button allows to reset step counter.
-Useful when starting a new activity an keeping exact track of it.
+Step counter 
 
-## Sailing
+Session starts with 0 steps, user presses START 
 
-![screenshot](images/sailing.png)
+Distance = 0m, calories = 0, pace shows '--', no crash 
 
-This app connects to your [OpenPlotter](https://openmarine.net/openplotter) and shows some of your boat stats.
+ 
 
-In order to make it work you have to configure your OpenCPN plotter in the connections tab as follows:
+BV-02 
 
-![screenshot](images/openplotter.png)
+REQ-8 
 
-Set "Output filtering" to trasmit the sentences: RMB,RMC,APB
+Pace guard 
 
-Contact [fliuzzi02](https://github.com/fliuzzi02) for further info and help.
-Some improvements might come in the future.
+distance_m = 1 (below 2m threshold in calc_pace()) 
 
-## Kodi Remote
+Pace returns 0, watch displays '--' not a number 
 
-A remote for controlling Kodi. Includes a player tile and a tile for a remote control.
+ 
 
-![screenshot](images/kodi_remote_player.png)
-![screenshot](images/kodi_remote_control.png)
+BV-03 
 
-## Calc
+REQ-8 
 
-A simple calculator.
-Beware that the button C/CE has two functions. A short touch uses CE, which clears only the
-recent input. A longer touch uses C, which clears all inputs and basically resets the calculator.
+Pace guard 
 
-![screenshot](images/calc.png)
+distance_m = 2 (exactly at threshold) 
 
-# Updates
+Pace calculated correctly as dur_s × 1000 ÷ 2 
 
-See `Updates` in settings.
+ 
 
-# FAQ
+BV-04 
 
-## how to make a screenshot?
+REQ-12 
 
-![screenshot](images/screen8.png)
+Calorie formula 
 
-Press the button for 2 seconds, after that an quickmenu appears. Here you can select the tiny camera icon to take a screenshot.
-This can be downloaded via the built-in FTP server (binary and passive mode, username: TTWatch and password: passord), if activated.
-The file name is screen.png.
+steps = 0 
 
-Or the other way:
+calories = 0 × 4 ÷ 100 = 0 kcal 
 
-The firmware has an integrated webserver. Over this a screenshot can be triggered. The image store as png and can be read with gimp. From bash it look like this
-```bash
-wget x.x.x.x/shot ; wget x.x.x.x/screen.png
-```
+ 
 
-Pro-tipp:
+BV-05 
 
-[lgrossard](https://github.com/lgrossard)! made a little Python script to generate and download the screenshots from the t-watch [here](https://ludovic.grossard.fr/media/twatch_screenshot.py).
+REQ-12 
 
-## how to change background?
+Calorie formula 
 
-You can change background in the display settings.
+steps = 100 
 
-If you want to use your own background image, simply upload a PNG with a resolution of 240x240 pixels via ftp to the Watch and name it bg.png and set it in the display settings page 2.
+calories = 100 × 4 ÷ 100 = 4 kcal 
+
+ 
+
+BV-06 
+
+REQ-7 
+
+Session guard 
+
+STOP pressed immediately after START (duration = 0s) 
+
+Session not saved  
+
+ 
+
+ 
+
+System Integration Testing 
+
+Integration testing validates and verifies if each component communicates and integrates correctly with others, including how watch behave with Raspberry Pi, either via BLE or via Wi-Fi and how Raspberry Pi itself behave with the website dashboard. 
+
+Watch (Standalone) 
+
+ID 
+
+REQ 
+
+Test 
+
+How to Run 
+
+Expected Result 
+
+Pass/Fail 
+
+IT-01 
+
+REQ-15 
+
+Power on 
+
+Hold crown button  
+
+Watch turns on and displays clock screen as homepage 
+
+ 
+
+IT-02 
+
+REQ-1 
+
+Clock on startup 
+
+Power on watch 
+
+Clock screen shows current date and time immediately 
+
+ 
+
+IT-03 
+
+REQ-3 
+
+Clock updates 
+
+Wait a minute to view how the current watch updates 
+
+Time display updates every minute 
+
+ 
+
+IT-04 
+
+REQ-2 
+
+Touch navigation 
+
+Swipe left from clock screen 
+
+Intended next screen appears within 500ms 
+
+ 
+
+IT-05 
+
+REQ-4 
+
+Battery display 
+
+Check any screen while watch is running 
+
+Battery percentage visible and updates  
+
+ 
+
+IT-06 
+
+REQ-6 
+
+Open Monterro app 
+
+Navigate to and open the Monterro app 
+
+Monterro activity screens appear with STEPS, DISTANCE, DURATION, KCAL, PACE 
+
+ 
+
+IT-07 
+
+REQ-7 
+
+Session start 
+
+Tap START in Monterro 
+
+Session begins, button changes to Stop 
+
+ 
+
+IT-08 
+
+REQ-8 
+
+Step counting 
+
+Walk 100 steps during active session 
+
+STEPS increments, DISTANCE updates to ~0.05 km 
+
+ 
+
+IT-09 
+
+REQ-9 
+
+Display update on change only 
+
+Stay still during active session for 10 seconds 
+
+Labels do not re-render when values have not changed 
+
+ 
+
+IT-10 
+
+REQ-7 
+
+Session stop 
+
+Tap STOP during active session 
+
+Counters freeze, button changes back to Start 
+
+ 
+
+IT-11 
+
+REQ-7 
+
+Session reset 
+
+Tap RESET then confirm Yes 
+
+All counters clear to zero 
+
+ 
+
+IT-12 
+
+REQ-15 
+
+Power off 
+
+Hold crown button seconds while watch is on 
+
+Watch screen turns off 
+
+ 
+
+ 
+
+Watch ® Raspberry Pi via BLE  
+
+ID 
+
+REQ 
+
+Test 
+
+Running Reqs 
+
+Expected Result 
+
+Pass/Fail 
+
+IT-13 
+
+REQ-5 
+
+Bluetooth status 
+
+With BLE disconnected 
+
+The Bluetooth logo on the control center bar becomes faded 
+
+ 
+
+IT-14 
+
+REQ-10 
+
+BLE connects to RPi 
+
+Run bluetoothctl scan 
+
+The watch MAC address displayed on the command prompt 
+
+ 
+
+IT-15 
+
+REQ-10 
+
+Live data via BLE 
+
+Start session, walk steps 
+
+RPi terminal shows: [BLE] live stp=X dst=Xm dur=Xs on each refresh 
+
+ 
+
+IT-16 
+
+REQ-10 
+
+Session ends via BLE 
+
+Press STOP on watch 
+
+RPi terminal shows: [BLE] hike_end → stp=X, last_session.json saved with calories 
+
+ 
+
+IT-17 
+
+REQ-12 
+
+Calories on RPi 
+
+Complete session with 100 steps 
+
+last_session.json shows calories = 100 × 4 ÷ 100 = 4 kcal 
+
+ 
+
+ 
+
+Watch  ® Raspberry Pi via Wi-Fi 
+
+ID 
+
+REQ 
+
+Test 
+
+How to Run 
+
+Expected Result 
+
+Pass/Fail 
+
+IT-18 
+
+REQ-11 
+
+Watch sends via WiFi when BLE off 
+
+Disable BLE, start session, walk, wait 5s 
+
+Flask /live receives POST every 5 seconds from watch 
+
+ 
+
+IT-19 
+
+REQ-11 
+
+WiFi works without BLE range 
+
+Move watch out of BLE range, start session, walk 
+
+Dashboard still receives updates every 5 seconds via WiFi 
+
+ 
+
+ 
+
+Raspberry Pi  ® Website Dashboard 
+
+ID 
+
+REQ 
+
+Test 
+
+How to Run 
+
+Expected Result 
+
+Pass/Fail 
+
+IT-20 
+
+REQ-16 
+
+Dashboard loads 
+
+Open http://monterro.vercel.app in browser 
+
+Monterro dashboard showed up, last session data shown in numerical values 
+
+ 
+
+IT-21 
+
+REQ-13 
+
+Live update  
+
+Start session, walk steps 
+
+Dashboard step count and distance update in real time via Supabase  
+
+ 
+
+IT-22 
+
+REQ-13 
+
+Session end on dashboard 
+
+Press STOP on watch 
+
+Dashboard shows final steps, distance, duration and calories immediately after session ends 
+
+ 
+
+IT-23 
+
+REQ-14 
+
+Last session history 
+
+Complete a session, reload dashboard 
+
+Last completed session data visible in numerical values on dashboard.  
+
+ 
+
+ 
+
+Full System 
+
+ID 
+
+REQ 
+
+Test 
+
+How to Run 
+
+Expected Result 
+
+Pass/Fail 
+
+IT-24 
+
+All 
+
+Complete hike via BLE 
+
+Start server.py → open dashboard → START on watch → walk 100 steps → STOP 
+
+Dashboard shows live steps during walk. Final calories, distance, duration shown after STOP.  
+
+ 
+
+IT-25 
+
+REQ-11 
+
+WiFi-only hike 
+
+Move watch beyond BLE range → START → walk 50 steps → STOP 
+
+Dashboard receives live updates every 5s via WiFi.  
+
+ 
+
