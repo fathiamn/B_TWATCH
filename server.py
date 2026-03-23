@@ -214,7 +214,7 @@ def handle_watch_connected(connected: bool) -> None:
         log.info("[BLE] connected=%s", connected)
         broadcast_async("status", {"connected": connected})
 
-# Heartbeat  (BLE path only — WiFi broadcasts directly via PHP)
+# Heartbeat
 
 def _heartbeat_tick() -> None:
     snap = state.snapshot()
@@ -252,8 +252,6 @@ def _heartbeat_loop() -> None:
 def start_heartbeat_thread() -> None:
     threading.Thread(target=_heartbeat_loop, name="heartbeat", daemon=True).start()
     log.info("[heartbeat] started (interval=%ds)", HEARTBEAT_INTERVAL)
-
-# MySQL sync (reads latest live_data row to keep in sync with WiFi updates, and also fetches last session)
 
 def sync_state_from_mysql() -> None:
     """
