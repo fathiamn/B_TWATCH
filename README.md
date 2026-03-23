@@ -1,4 +1,4 @@
-# Monterro — Hiking Tour Assistant
+# Monterro: Hiking Tour Assistant
 
 **ELEC-E8408 Embedded Systems Development · Aalto University · 2026**  
 *Bintang Setya, Fathia Nugraha*
@@ -35,23 +35,23 @@ When you press STOP, the watch sends the completed session via BLE and WiFi. The
 - LilyGo T-Watch 2020 V2
 - Raspberry Pi 400 with power adapter, SD card, and HDMI cable
 - USB cable (USB-A to micro-USB)
-- WiFi router — ensure both devices are connected to the same local network
+- WiFi router: ensure both devices are connected to the same local network
 
 ---
 
 ### 1.2 Watch Firmware Setup
 
-**Step 1** — Install [Visual Studio Code](https://code.visualstudio.com/) along with the PlatformIO extension.
+**Step 1**: Install [Visual Studio Code](https://code.visualstudio.com/) along with the PlatformIO extension.
 
-**Step 2** — Clone the repository:
+**Step 2**: Clone the repository:
 
 ```bash
 git clone https://github.com/fathiamn/TTGO_TWATCH2
 ```
 
-**Step 3** — Open the `TTGO_TWATCH2` folder in Visual Studio Code with PlatformIO.
+**Step 3**: Open the `TTGO_TWATCH2` folder in Visual Studio Code with PlatformIO.
 
-**Step 4** — Open `platformio.ini` and set the upload port for your Raspberry Pi:
+**Step 4**: Open `platformio.ini` and set the upload port for your Raspberry Pi:
 
 ```ini
 upload_port = /dev/ttyACM1
@@ -60,7 +60,7 @@ upload_speed = 115200
 
 > The port may be `/dev/ttyACM0` or `/dev/ttyACM1` depending on which USB port you are using. Check with `ls /dev/ttyACM*` on the Raspberry Pi terminal.
 
-**Step 5** — In `src/hardware/wifictl.cpp`, set your WiFi credentials and Raspberry Pi IP address:
+**Step 5**: In `src/hardware/wifictl.cpp`, set your WiFi credentials and Raspberry Pi IP address:
 
 ```cpp
 const char* WIFI_SSID = "your_wifi";
@@ -68,7 +68,7 @@ const char* WIFI_PASS = "your_password";
 const char* RPI_URL   = "http://192.168.x.x:5000/update";
 ```
 
-**Step 6** — Hold the watch's crown button with the USB plugged in, then build and upload:
+**Step 6**: Hold the watch's crown button with the USB plugged in, then build and upload:
 
 ```bash
 pio run --target upload
@@ -78,32 +78,32 @@ pio run --target upload
 
 ### 1.3 Raspberry Pi Setup
 
-**Step 1** — Install Python dependencies:
+**Step 1**: Install Python dependencies:
 
 ```bash
 pip install flask flask-cors bleak realtime zeroconf --break-system-packages
 ```
 
-**Step 2** — Install Apache, PHP, and MySQL:
+**Step 2**: Install Apache, PHP, and MySQL:
 
 ```bash
 sudo apt install apache2 mysql-server php php-mysql php-curl -y
 ```
 
-**Step 3** — Set up the database:
+**Step 3**: Set up the database:
 
 ```bash
 sudo mysql < setup_db.sql
 ```
 
-**Step 4** — Deploy the PHP files:
+**Step 4**: Deploy the PHP files:
 
 ```bash
 sudo mkdir -p /var/www/html/monterro
 sudo cp post-live.php post-end.php get-current.php /var/www/html/monterro/
 ```
 
-**Step 5** — Run the server:
+**Step 5**: Run the server:
 
 ```bash
 python3 server.py
@@ -113,11 +113,11 @@ python3 server.py
 
 ### 1.4 Supabase Setup
 
-**Step 1** — Create an account or log in at [supabase.com](https://supabase.com).
+**Step 1**: Create an account or log in at [supabase.com](https://supabase.com).
 
-**Step 2** — Create a new project. From **Settings → API**, copy your project's public URL and anon key.
+**Step 2**: Create a new project. From **Settings → API**, copy your project's public URL and anon key.
 
-**Step 3** — Create the required tables by running the following in the **SQL Editor**:
+**Step 3**: Create the required tables by running the following in the **SQL Editor**:
 
 ```sql
 create table live_snapshot (
@@ -141,7 +141,7 @@ create table session_history (
 insert into live_snapshot (id) values (1);
 ```
 
-**Step 4** — Enable Row Level Security by running in the SQL Editor:
+**Step 4**: Enable Row Level Security by running in the SQL Editor:
 
 ```sql
 alter table live_snapshot   enable row level security;
@@ -171,7 +171,7 @@ alter publication supabase_realtime add table session_history;
 
 ### MySQL on Raspberry Pi
 
-**`live_data`** — inserted every 5 seconds during an active session via `post-live.php`:
+**`live_data`**: inserted every 5 seconds during an active session via `post-live.php`:
 
 | Column | Type | Description |
 |---|---|---|
@@ -179,11 +179,11 @@ alter publication supabase_realtime add table session_history;
 | steps | INT UNSIGNED | Current step count |
 | distance | INT UNSIGNED | Distance in metres |
 | duration | INT UNSIGNED | Session time in seconds |
-| calories | INT UNSIGNED | Estimated calories — steps × 4 ÷ 100 |
+| calories | INT UNSIGNED | Estimated calories: steps × 4 ÷ 100 |
 | source | VARCHAR(8) | `'wifi'` or `'ble'` |
 | received_at | TIMESTAMP | Row insertion time |
 
-**`sessions`** — one row per completed hike, inserted by `post-end.php` when STOP is pressed:
+**`sessions`**: one row per completed hike, inserted by `post-end.php` when STOP is pressed:
 
 | Column | Type | Description |
 |---|---|---|
@@ -196,7 +196,7 @@ alter publication supabase_realtime add table session_history;
 
 ### Supabase DB
 
-**`live_snapshot`** — single row (id=1), upserted on every WiFi tick by `post-live.php`. The dashboard reads this on page load because it is hosted on Vercel (HTTPS) and cannot fetch from the Raspberry Pi (HTTP) directly due to mixed content restrictions:
+**`live_snapshot`**: single row (id=1), upserted on every WiFi tick by `post-live.php`. The dashboard reads this on page load because it is hosted on Vercel (HTTPS) and cannot fetch from the Raspberry Pi (HTTP) directly due to mixed content restrictions:
 
 | Column | Type | Description |
 |---|---|---|
@@ -207,7 +207,7 @@ alter publication supabase_realtime add table session_history;
 | calories | INT | Latest calories |
 | updated_at | TIMESTAMPTZ | Last update time |
 
-**`session_history`** — one row per completed session, inserted by `post-end.php`. Used by the dashboard to display past hike history:
+**`session_history`**: one row per completed session, inserted by `post-end.php`. Used by the dashboard to display past hike history:
 
 | Column | Type | Description |
 |---|---|---|
@@ -220,7 +220,7 @@ alter publication supabase_realtime add table session_history;
 
 ### SPIFFS on Watch
 
-**`/hike_log.jsonl`** — one JSON line appended per session to the watch's internal flash memory, regardless of network connectivity:
+**`/hike_log.jsonl`**: one JSON line appended per session to the watch's internal flash memory, regardless of network connectivity:
 
 | Field | Description |
 |---|---|
@@ -236,7 +236,7 @@ alter publication supabase_realtime add table session_history;
 
 The system uses two parallel data channels:
 
-**Bluetooth Low Energy (primary)** — the watch connects to the Raspberry Pi using `server.py` and the Bleak library, subscribing to the Nordic UART Service (NUS) TX characteristic (`6e400003-b5a3-f393-e0a9-e50e24dcca9e`). JSON messages are sent as newline-terminated strings.
+**Bluetooth Low Energy (primary)**: the watch connects to the Raspberry Pi using `server.py` and the Bleak library, subscribing to the Nordic UART Service (NUS) TX characteristic (`6e400003-b5a3-f393-e0a9-e50e24dcca9e`). JSON messages are sent as newline-terminated strings.
 
 Live message format:
 ```json
@@ -248,7 +248,7 @@ Session end message format:
 {"type": "end", "steps": 1234, "distance": 617, "duration": 480, "history": [...]}
 ```
 
-**WiFi HTTP POST (bonus / fallback)** — the watch sends form-encoded POST requests to Apache on the Raspberry Pi every 5 seconds. An API key (`monterro2026`) is included with every request for basic authentication. The WiFi channel activates automatically when BLE is disconnected, ensuring data continues to reach the Raspberry Pi regardless of proximity.
+**WiFi HTTP POST (bonus / fallback)**: the watch sends form-encoded POST requests to Apache on the Raspberry Pi every 5 seconds. An API key (`monterro2026`) is included with every request for basic authentication. The WiFi channel activates automatically when BLE is disconnected, ensuring data continues to reach the Raspberry Pi regardless of proximity.
 
 - Live endpoint: `POST /monterro/post-live.php`
 - Session end endpoint: `POST /monterro/post-end.php`
@@ -259,7 +259,7 @@ Session end message format:
 
 - The watch may reboot when BLE disconnects unexpectedly. Session data is preserved in SPIFFS on the watch so nothing is lost, but the reboot itself is a known issue to be addressed in future firmware versions.
 - Calories are estimated using a simplified formula (`steps × 4 ÷ 100`) and do not account for user weight, height, or terrain.
-- The `live_data` MySQL table grows indefinitely — older rows are kept for debugging but never read by the dashboard. A cleanup routine should be added for long-term use.
+- The `live_data` MySQL table grows indefinitely: older rows are kept for debugging but never read by the dashboard. A cleanup routine should be added for long-term use.
 - Live dashboard updates require an internet connection to Supabase. If the network has no internet access, the dashboard will still show the last known state from `live_snapshot` on page load.
 
 ---
