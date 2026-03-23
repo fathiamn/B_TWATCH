@@ -42,7 +42,8 @@ If you want to see the updates on Monterro website, go to this website and creat
 
 3. Using the Watch 
 ![Manual](./manual.png)
-1.  Watch home screen, swipe left to find the menu screen 
+
+1. Watch home screen, swipe left to find the menu screen 
 2. Menu screen, the Hiking Tour Assistant can be found by pressing the “Monterro” app 
 3. Press “Start” to start the hiking session.  
 4. You will see the “Active Session” duration is counting along with the distance, steps, and calories burned 
@@ -132,583 +133,105 @@ The dashboard shows some important informations, including:
 
 5. Troubleshooting 
 
-Problem 
+| Problem | Solution |
+|---|---|
+| Dashboard not loading | Check if `server.py` is running on RPi, check if both RPi and watch connected on the same Wi-Fi address |
+| Dashboard not updating | Check `supabase` credential in `app.py`, try refreshing the page |
+| Watch not connected to BLE | Do `bluetoothctl` scan and ensure watch MAC address is available on the listed device, turn the watch’s Bluetooth on and off again |
+| Watch rebooting | Watch is outside the BLE range or both Wi-Fi and BLE are on and crashing at the same time. Use either BLE or Wi-Fi if the booting is still happening |
+| Upload to watch fail | Hold crown button before uploading, ensure the watch is ON, ensure you use the right RPi port (`ACM0` or `ACM1`) |
+| Duration and steps are not counting | Ensure the session is STARTED, wear the watch properly and start walking |
 
-Solution 
+6. Test Plan  
 
-Dashboard not loading 
-
-Check if server.py is running on RPi, check if both RPi and watch connected on the same Wi-Fi address 
-
-Dashboard not updating 
-
-Check supabase credential in app,py, try refreshing the page 
-
-Watch not connected to BLE 
-
-Do bluetoothctl scan and ensure watch MAC address is available on the listed device, turn the watch’s Bluetooth on and off again 
-
-Watch rebooting 
-
-Watch is outside the BLE range or both Wi-Fi and BLE are on and crashing at the same time. Use either BLE or Wi-Fi if the booting is still happening 
-
-Upload to watch fail 
-
-Hold crown button before uploading, ensure the watch is ON, ensure you use the right RPi port (ACM0 or ACM1) 
-
-Duration and steps are not counting 
-
-Ensure the session is STARTED, wear the watch properly and start walking 
-
-Test Plan  
-
-Overview 
+6.1 Overview 
 
 The purpose of this test plan is to verify the whole functional requirements in the Software Requirement Specification document of the Hiking Tour Assistant are working well and correctly implemented. This test applies two techniques from the Real-Time Systems: Design and Analysis (Chapter 8). The first one is black-box testing, which is used to verify each requirement from the outside. The user will give an input or action, observe the output, and identify whether it matches the requirement. Furthermore, the system integration testing is used to verify the watch, Raspberry Pi, and website dashboard to correctly run together as a one system. 
 
-Environment 
+6.2 Environment 
+ *Watch: LilyGo T-Watch 2020 V2 with Monterro firmware flashed via PlatformIO 
+ *Raspberry Pi: Running server.py with Flask  
+ *Browser: Chrome or Firefox on same WiFi network 
+ *Other tools: Powershell command prompt 
 
-Watch: LilyGo T-Watch 2020 V2 with Monterro firmware flashed via PlatformIO 
-
-Raspberry Pi: Running server.py with Flask  
-
-Browser: Chrome or Firefox on same WiFi network 
-
-Other tools: Powershell command prompt 
-
-Black-Box Testing 
+7. Black-Box Testing 
 
 This kind of testing will check only the inputs and outputs without identifying or looking at the internal implementation (process). For this case, two sub-techniques such as worst-case test and boundary-values test are applied. 
 
-Worst-Case Tests 
+7.1 Worst-Case Tests 
 
-This test checks the scenarios that are probably unlikely, but critical to handle. 
+This test checks the scenarios that are probably unlikely, but critical to handle.
 
- 
+| ID | REQ | Scenario | Expected Behavior | Pass/Fail |
+|---|---|---|---|---|
+| WC-01 | REQ-10, REQ-11 | BLE drops in the middle of session | WiFi fallback activates on next 5-second cycle. Watch keeps recording steps. No reboot. |  |
+| WC-02 | REQ-10, REQ-11 | Both BLE and WiFi unavailable | Session saved locally to SPIFFS on watch, no data loss |  |
+| WC-03 | REQ-10 | RPi crashes in the middle of session | `server.py` reconnects to watch BLE within 15 seconds (`BLE_RETRY_DELAY = 15s`). `last_session.json` intact on restart. |  |
+| WC-04 | REQ-9 | Session runs 2 hours non-stop | Watch does not reboot. LVGL renders correctly. No stack overflow across all FreeRTOS tasks. |  |
 
-ID 
-
-REQ 
-
-Scenario 
-
-Expected Behavior 
-
-Pass/Fail 
-
-WC-01 
-
-REQ-10, REQ-11 
-
-BLE drops in the middle of session 
-
-WiFi fallback activates on next 5-second cycle. Watch keeps recording steps. No reboot. 
-
- 
-
-WC-02 
-
-REQ-10, REQ-11 
-
-Both BLE and WiFi unavailable 
-
-Session saved locally to SPIFFS on watch, no data loss 
-
- 
-
-WC-03 
-
-REQ-10 
-
-RPi crashes in the middle of session 
-
-server.py reconnects to watch BLE within 15 seconds (BLE_RETRY_DELAY = 15s). last_session.json intact on restart. 
-
- 
-
-WC-04 
-
-REQ-9 
-
-Session runs 2 hours non-stop 
-
-Watch does not reboot. LVGL renders correctly. No stack overflow across all FreeRTOS tasks. 
-
- 
-
- 
-
-Boundary-Value Tests 
+7.2 Boundary-Value Tests 
 
 This technique checks the edges or thresholds of the input, which becomes the values that are most likely to expose bugs. 
 
- 
+| ID | REQ | Module | Input / Condition | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| BV-01 | REQ-8 | Step counter | Session starts with 0 steps, user presses START | Distance = 0m, calories = 0, pace shows '--', no crash |  |
+| BV-02 | REQ-8 | Pace guard | `distance_m = 1` (below 2m threshold in `calc_pace()`) | Pace returns 0, watch displays '--' not a number |  |
+| BV-03 | REQ-8 | Pace guard | `distance_m = 2` (exactly at threshold) | Pace calculated correctly as `dur_s × 1000 ÷ 2` |  |
+| BV-04 | REQ-12 | Calorie formula | `steps = 0` | `calories = 0 × 4 ÷ 100 = 0` kcal |  |
+| BV-05 | REQ-12 | Calorie formula | `steps = 100` | `calories = 100 × 4 ÷ 100 = 4` kcal |  |
+| BV-06 | REQ-7 | Session guard | STOP pressed immediately after START (duration = 0s) | Session not saved |  |
 
-ID 
-
-REQ 
-
-Module 
-
-Input / Condition 
-
-Expected Result 
-
-Pass/Fail 
-
-BV-01 
-
-REQ-8 
-
-Step counter 
-
-Session starts with 0 steps, user presses START 
-
-Distance = 0m, calories = 0, pace shows '--', no crash 
-
- 
-
-BV-02 
-
-REQ-8 
-
-Pace guard 
-
-distance_m = 1 (below 2m threshold in calc_pace()) 
-
-Pace returns 0, watch displays '--' not a number 
-
- 
-
-BV-03 
-
-REQ-8 
-
-Pace guard 
-
-distance_m = 2 (exactly at threshold) 
-
-Pace calculated correctly as dur_s × 1000 ÷ 2 
-
- 
-
-BV-04 
-
-REQ-12 
-
-Calorie formula 
-
-steps = 0 
-
-calories = 0 × 4 ÷ 100 = 0 kcal 
-
- 
-
-BV-05 
-
-REQ-12 
-
-Calorie formula 
-
-steps = 100 
-
-calories = 100 × 4 ÷ 100 = 4 kcal 
-
- 
-
-BV-06 
-
-REQ-7 
-
-Session guard 
-
-STOP pressed immediately after START (duration = 0s) 
-
-Session not saved  
-
- 
-
- 
-
-System Integration Testing 
+8. System Integration Testing 
 
 Integration testing validates and verifies if each component communicates and integrates correctly with others, including how watch behave with Raspberry Pi, either via BLE or via Wi-Fi and how Raspberry Pi itself behave with the website dashboard. 
 
-Watch (Standalone) 
+8.1 Watch (Standalone) 
 
-ID 
-
-REQ 
-
-Test 
-
-How to Run 
-
-Expected Result 
-
-Pass/Fail 
-
-IT-01 
-
-REQ-15 
-
-Power on 
-
-Hold crown button  
-
-Watch turns on and displays clock screen as homepage 
-
+| ID | REQ | Test | How to Run | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| IT-01 | REQ-15 | Power on | Hold crown button | Watch turns on and displays clock screen as homepage |  |
+| IT-02 | REQ-1 | Clock on startup | Power on watch | Clock screen shows current date and time immediately |  |
+| IT-03 | REQ-3 | Clock updates | Wait a minute to view how the current watch updates | Time display updates every minute |  |
+| IT-04 | REQ-2 | Touch navigation | Swipe left from clock screen | Intended next screen appears within 500ms |  |
+| IT-05 | REQ-4 | Battery display | Check any screen while watch is running | Battery percentage visible and updates |  |
+| IT-06 | REQ-6 | Open Monterro app | Navigate to and open the Monterro app | Monterro activity screens appear with STEPS, DISTANCE, DURATION, KCAL, PACE |  |
+| IT-07 | REQ-7 | Session start | Tap START in Monterro | Session begins, button changes to Stop |  |
+| IT-08 | REQ-8 | Step counting | Walk 100 steps during active session | STEPS increments, DISTANCE updates to ~0.05 km |  |
+| IT-09 | REQ-9 | Display update on change only | Stay still during active session for 10 seconds | Labels do not re-render when values have not changed |  |
+| IT-10 | REQ-7 | Session stop | Tap STOP during active session | Counters freeze, button changes back to Start |  |
+| IT-11 | REQ-7 | Session reset | Tap RESET then confirm Yes | All counters clear to zero |  |
+| IT-12 | REQ-15 | Power off | Hold crown button seconds while watch is on | Watch screen turns off |  |
  
-
-IT-02 
-
-REQ-1 
-
-Clock on startup 
-
-Power on watch 
-
-Clock screen shows current date and time immediately 
-
- 
-
-IT-03 
-
-REQ-3 
-
-Clock updates 
-
-Wait a minute to view how the current watch updates 
-
-Time display updates every minute 
-
- 
-
-IT-04 
-
-REQ-2 
-
-Touch navigation 
-
-Swipe left from clock screen 
-
-Intended next screen appears within 500ms 
-
- 
-
-IT-05 
-
-REQ-4 
-
-Battery display 
-
-Check any screen while watch is running 
-
-Battery percentage visible and updates  
-
- 
-
-IT-06 
-
-REQ-6 
-
-Open Monterro app 
-
-Navigate to and open the Monterro app 
-
-Monterro activity screens appear with STEPS, DISTANCE, DURATION, KCAL, PACE 
-
- 
-
-IT-07 
-
-REQ-7 
-
-Session start 
-
-Tap START in Monterro 
-
-Session begins, button changes to Stop 
-
- 
-
-IT-08 
-
-REQ-8 
-
-Step counting 
-
-Walk 100 steps during active session 
-
-STEPS increments, DISTANCE updates to ~0.05 km 
-
- 
-
-IT-09 
-
-REQ-9 
-
-Display update on change only 
-
-Stay still during active session for 10 seconds 
-
-Labels do not re-render when values have not changed 
-
- 
-
-IT-10 
-
-REQ-7 
-
-Session stop 
-
-Tap STOP during active session 
-
-Counters freeze, button changes back to Start 
-
- 
-
-IT-11 
-
-REQ-7 
-
-Session reset 
-
-Tap RESET then confirm Yes 
-
-All counters clear to zero 
-
- 
-
-IT-12 
-
-REQ-15 
-
-Power off 
-
-Hold crown button seconds while watch is on 
-
-Watch screen turns off 
-
- 
-
- 
-
-Watch ® Raspberry Pi via BLE  
-
-ID 
-
-REQ 
-
-Test 
-
-Running Reqs 
-
-Expected Result 
-
-Pass/Fail 
-
-IT-13 
-
-REQ-5 
-
-Bluetooth status 
-
-With BLE disconnected 
-
-The Bluetooth logo on the control center bar becomes faded 
-
- 
-
-IT-14 
-
-REQ-10 
-
-BLE connects to RPi 
-
-Run bluetoothctl scan 
-
-The watch MAC address displayed on the command prompt 
-
- 
-
-IT-15 
-
-REQ-10 
-
-Live data via BLE 
-
-Start session, walk steps 
-
-RPi terminal shows: [BLE] live stp=X dst=Xm dur=Xs on each refresh 
-
- 
-
-IT-16 
-
-REQ-10 
-
-Session ends via BLE 
-
-Press STOP on watch 
-
-RPi terminal shows: [BLE] hike_end → stp=X, last_session.json saved with calories 
-
- 
-
-IT-17 
-
-REQ-12 
-
-Calories on RPi 
-
-Complete session with 100 steps 
-
-last_session.json shows calories = 100 × 4 ÷ 100 = 4 kcal 
-
- 
-
- 
-
-Watch  ® Raspberry Pi via Wi-Fi 
-
-ID 
-
-REQ 
-
-Test 
-
-How to Run 
-
-Expected Result 
-
-Pass/Fail 
-
-IT-18 
-
-REQ-11 
-
-Watch sends via WiFi when BLE off 
-
-Disable BLE, start session, walk, wait 5s 
-
-Flask /live receives POST every 5 seconds from watch 
-
- 
-
-IT-19 
-
-REQ-11 
-
-WiFi works without BLE range 
-
-Move watch out of BLE range, start session, walk 
-
-Dashboard still receives updates every 5 seconds via WiFi 
-
- 
-
- 
-
-Raspberry Pi  ® Website Dashboard 
-
-ID 
-
-REQ 
-
-Test 
-
-How to Run 
-
-Expected Result 
-
-Pass/Fail 
-
-IT-20 
-
-REQ-16 
-
-Dashboard loads 
-
-Open http://monterro.vercel.app in browser 
-
-Monterro dashboard showed up, last session data shown in numerical values 
-
- 
-
-IT-21 
-
-REQ-13 
-
-Live update  
-
-Start session, walk steps 
-
-Dashboard step count and distance update in real time via Supabase  
-
- 
-
-IT-22 
-
-REQ-13 
-
-Session end on dashboard 
-
-Press STOP on watch 
-
-Dashboard shows final steps, distance, duration and calories immediately after session ends 
-
- 
-
-IT-23 
-
-REQ-14 
-
-Last session history 
-
-Complete a session, reload dashboard 
-
-Last completed session data visible in numerical values on dashboard.  
-
- 
-
- 
-
-Full System 
-
-ID 
-
-REQ 
-
-Test 
-
-How to Run 
-
-Expected Result 
-
-Pass/Fail 
-
-IT-24 
-
-All 
-
-Complete hike via BLE 
-
-Start server.py → open dashboard → START on watch → walk 100 steps → STOP 
-
-Dashboard shows live steps during walk. Final calories, distance, duration shown after STOP.  
-
- 
-
-IT-25 
-
-REQ-11 
-
-WiFi-only hike 
-
-Move watch beyond BLE range → START → walk 50 steps → STOP 
-
-Dashboard receives live updates every 5s via WiFi.  
-
- 
-
+8.2 Watch → Raspberry Pi via BLE
+
+| ID | REQ | Test | Running Reqs | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| IT-13 | REQ-5 | Bluetooth status | With BLE disconnected | The Bluetooth logo on the control center bar becomes faded |  |
+| IT-14 | REQ-10 | BLE connects to RPi | Run `bluetoothctl` scan | The watch MAC address displayed on the command prompt |  |
+| IT-15 | REQ-10 | Live data via BLE | Start session, walk steps | RPi terminal shows: `[BLE] live stp=X dst=Xm dur=Xs` on each refresh |  |
+| IT-16 | REQ-10 | Session ends via BLE | Press STOP on watch | RPi terminal shows: `[BLE] hike_end -> stp=X, last_session.json` saved with calories |  |
+| IT-17 | REQ-12 | Calories on RPi | Complete session with 100 steps | `last_session.json` shows `calories = 100 × 4 ÷ 100 = 4 kcal` |  |
+
+8.3 Watch → Raspberry Pi via Wi-Fi
+
+| ID | REQ | Test | How to Run | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| IT-18 | REQ-11 | Watch sends via WiFi when BLE off | Disable BLE, start session, walk, wait 5s | Flask `/live` receives POST every 5 seconds from watch |  |
+| IT-19 | REQ-11 | WiFi works without BLE range | Move watch out of BLE range, start session, walk | Dashboard still receives updates every 5 seconds via WiFi |  |
+
+8.4 Raspberry Pi → Website Dashboard
+
+| ID | REQ | Test | How to Run | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| IT-20 | REQ-16 | Dashboard loads | Open `http://monterro.vercel.app` in browser | Monterro dashboard showed up, last session data shown in numerical values |  |
+| IT-21 | REQ-13 | Live update | Start session, walk steps | Dashboard step count and distance update in real time via Supabase |  |
+| IT-22 | REQ-13 | Session end on dashboard | Press STOP on watch | Dashboard shows final steps, distance, duration and calories immediately after session ends |  |
+| IT-23 | REQ-14 | Last session history | Complete a session, reload dashboard | Last completed session data visible in numerical values on dashboard |  |
+
+8.5 Full System
+
+| ID | REQ | Test | How to Run | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| IT-24 | All | Complete hike via BLE | Start `server.py` → open dashboard → START on watch → walk 100 steps → STOP | Dashboard shows live steps during walk. Final calories, distance, duration shown after STOP. |  |
+| IT-25 | REQ-11 | WiFi-only hike | Move watch beyond BLE range → START → walk 50 steps → STOP | Dashboard receives live updates every 5s via WiFi. |  |
