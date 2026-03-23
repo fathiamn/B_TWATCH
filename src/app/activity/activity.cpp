@@ -1,37 +1,6 @@
 /*
- *  Monterro — Activity app
- *  Target : LILYGO T-Watch 2020 V1/V2/V3 · LVGL 7.11.1
- *
- *  Fix log vs previous builds
- *  ──────────────────────────
- *  1. TITLE   — monterro_64px didn't exist → linker failed silently, old
- *               binary kept running. Now uses monterro_64px (always present)
- *               with name "Monterro". Swap back when your PNG is converted.
- *
- *  2. HISTORY — shift only ran when array was FULL (history_count==MAX).
- *               Every session before slot 10 silently overwrote history[0].
- *               Fixed: always shift before inserting at [0].
- *
- *  3. SPIFFS  — SPIFFS.begin(true) was called twice: in load_history() AND
- *               in save_session(). Now mounted ONCE in activity_app_setup().
- *
- *  4. HISTORY GUARD — was "if (final_steps > 0)" which silently dropped
- *               sessions with 0 steps (timing gap between pedometer and stop).
- *               Now guards on "final_dur > 0" — any session with elapsed time
- *               is worth recording even if steps reads 0.
- *
- *  5. BG OPA  — bg tiles always need LV_OPA_COVER or mainbar dark bg bleeds
- *               through. Already correct in both uploads, kept as-is.
- *
- *  6. PACE    — threshold 2 m (not 10 m). Shows after ~4 steps at 50 cm/step.
- *
- *  7. TASKS   — display task (1 s): labels/arcs only, zero BLE/WiFi.
- *               telemetry task (5 s): BLE primary, WiFi fallback. Kept.
- *
- *  8. WIFI    — never calls wifictl_on(). mDNS with hardcoded fallback IP.
- *               Only POSTs when WiFi already connected.
- */
-
+© 2026 Monterro · Fathia & Bintang. All rights reserved.
+*/
 #include "config.h"
 #include "quickglui/quickglui.h"
 #include "activity.h"
@@ -57,14 +26,6 @@
     #endif
 #endif
 
-// FIX 1 — use monterro_64px (always compiled in) until monterro_64px.c exists.
-// To restore custom icon:
-//   1. Convert monterro.png (64×64) at https://lvgl.io/tools/imageconverter
-//      Output format: C array · Color format: CF_TRUE_COLOR_ALPHA
-//   2. Add monterro_64px.c to your build
-//   3. Replace the two lines below with:
-//        LV_IMG_DECLARE(monterro_64px);
-//        #define APP_ICON  monterro_64px
 LV_IMG_DECLARE(monterro_64px);
 #define APP_ICON  monterro_64px
 
@@ -191,7 +152,6 @@ static uint32_t get_step_len_cm() {
     return (v == 0) ? 50 : v;
 }
 
-// FIX 6 — threshold 2 m, not 10 m
 static uint32_t calc_pace(uint32_t dur_s, uint32_t dist_m) {
     if (dist_m < 2 || dur_s == 0) return 0;
     return (dur_s * 1000u) / dist_m;
@@ -212,13 +172,7 @@ static void tile_opaque(lv_obj_t *t) {
 // SPIFFS persistence (FIX 3 — SPIFFS mounted once in setup, not here)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Save one session: push into RAM ring-buffer + append line to SPIFFS log.
-// FIX 2 — shift ALWAYS runs, not only when history_count == HISTORY_MAX.
 static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur) {
-    // ── RAM ring-buffer ───────────────────────────────────────────────────────
-    // Shift existing entries up by one slot to make room at [0].
-    // Previously the shift only ran when the array was full (== HISTORY_MAX),
-    // so sessions 1–9 silently overwrote history[0] every time.
     const uint8_t used = (history_count < HISTORY_MAX)
                          ? history_count : HISTORY_MAX - 1;
     for (int i = used; i > 0; i--)          // always shift, regardless of count
@@ -233,7 +187,6 @@ static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur) {
     if (history_count < HISTORY_MAX) history_count++;
 
     // ── SPIFFS append ─────────────────────────────────────────────────────────
-    // FIX 3 — no SPIFFS.begin() here; already mounted in activity_app_setup()
     File f = SPIFFS.open(HIKE_LOG, FILE_APPEND);
     if (!f) {
         log_w("[monterro] SPIFFS open failed for append");
@@ -255,7 +208,6 @@ static void spiffs_save_session(uint32_t steps, uint32_t dist, uint32_t dur) {
 }
 
 // Load last HISTORY_MAX sessions from SPIFFS on boot.
-// FIX 3 — no SPIFFS.begin() here; already mounted in activity_app_setup()
 static void spiffs_load_history() {
     if (!SPIFFS.exists(HIKE_LOG)) {
         log_i("[monterro] No hike log found, starting fresh");
@@ -293,7 +245,7 @@ static void spiffs_load_history() {
         int matched = sscanf(lines[i],
             "{\"ts\":%ld,\"stp\":%lu,\"dst\":%lu,\"dur\":%lu,\"kcal\":%lu}",
             &ts, &stp, &dst, &dur, &kcal);
-        if (matched < 4 || dur == 0) continue;   // skip corrupt / zero-dur lines
+        if (matched < 4 || dur == 0) continue;   // skip zero-lines or corrupt data
         history[history_count].steps           = stp;
         history[history_count].dist_m          = dst;
         history[history_count].dur_s           = dur;
@@ -308,7 +260,6 @@ static void spiffs_load_history() {
 // WiFi telemetry
 // ─────────────────────────────────────────────────────────────────────────────
 
-// FIX 8 — mDNS with hardcoded fallback; never calls wifictl_on()
 static IPAddress resolve_pi_addr() {
     if ((uint32_t)cachedPiAddr != 0 &&
         (millis() - cachedPiAddrMs) < PI_ADDR_CACHE_MS) {
@@ -354,22 +305,16 @@ static bool post_live_update(uint32_t stp, uint32_t dist, uint32_t dur) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void activity_app_setup() {
-    // FIX 1 — APP_ICON resolves to monterro_64px (always present).
-    // The name "Monterro" is what appears in the watch app list.
     activityApp.init("Monterro", &APP_ICON, 1, 2);
     mainbar_add_tile_activate_cb(activityApp.mainTileId(), activity_activate_cb);
 
     build_main_page();
     build_history_page();
     build_settings();
-
-    // FIX 3 — mount SPIFFS exactly once, here, before load or save are called
     if (!SPIFFS.begin(true)) {
         log_e("[monterro] SPIFFS mount failed — history will not persist");
     }
     spiffs_load_history();   // restore sessions from flash on boot
-
-    // FIX 7 — two separate tasks: display (1 s) and telemetry (5 s)
     lv_task_create(task_display_cb, 1000, LV_TASK_PRIO_LOW, nullptr);
     lv_task_create(task_telem_cb,   5000, LV_TASK_PRIO_LOW, nullptr);
 
@@ -380,14 +325,12 @@ void activity_app_setup() {
 // Tasks
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Display task — label/arc updates ONLY, zero BLE/WiFi
 static void task_display_cb(lv_task_t *t) {
     (void)t;
     if (!tile_active || !lbl_dur_val) return;
     refresh_main_page();
 }
 
-// Telemetry task — BLE primary, WiFi fallback, never wifictl_on()
 static void task_telem_cb(lv_task_t *t) {
     (void)t;
     if (!session_running) return;
@@ -399,7 +342,6 @@ static void task_telem_cb(lv_task_t *t) {
     if (blectl_get_event(BLECTL_ON)) {
         blestepctl_set_hike(stp, dist, dur);
         blestepctl_update_hike(false);
-        return;   // BLE takes priority, skip WiFi
     }
 
     // Request WiFi on if not already connected
@@ -416,22 +358,6 @@ static void activity_activate_cb() {
     cache_invalidate();
     refresh_main_page();
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Build main tile
-// ─────────────────────────────────────────────────────────────────────────────
-//
-//  240 × 240 px layout
-//  y=  4   "ACTIVE SESSION"   muted 16px centred
-//  y= 22   "0:00"             dark  32px centred
-//  arcs    Y_CTR = 100
-//    dist  64×64  x=10  cx=42
-//    steps 80×80  x=80  cx=120
-//    kcal  64×64  x=166 cx=198
-//  y=148   DIST(m) / STEPS / KCAL   coloured headers
-//  y=176   ● PACE  value  min/km
-//  y=190   separator
-//  y=200   [Reset] [▶ Start] [History]
 
 void build_main_page() {
     lv_obj_t *tile = mainbar_get_tile_obj(activityApp.mainTileId());
@@ -506,7 +432,7 @@ void build_main_page() {
     lv_obj_add_style(lbl_dur_val, LV_LABEL_PART_MAIN, &sty_timer);
     lv_obj_align(lbl_dur_val, tile, LV_ALIGN_IN_TOP_MID, 0, 20);
 
-    // Arc positions — 64+6+80+6+64=220, margin=10
+    // Arc positions
     const lv_coord_t SM=64, LG=80, YCTR=100, G=6;
     const lv_coord_t XD=10,       XS=10+SM+G,     XK=10+SM+G+LG+G;
     const lv_coord_t CXD=XD+SM/2, CXS=XS+LG/2,   CXK=XK+SM/2;
@@ -529,8 +455,7 @@ void build_main_page() {
     MK_ARC(arc_steps, sty_arc_steps, XS, YCTR-LG/2, LG)
     MK_ARC(arc_kcal,  sty_arc_kcal,  XK, YCTR-SM/2, SM)
 #undef MK_ARC
-
-    // One value label per arc — number only, centred
+    
     lbl_dist_val = lv_label_create(tile, NULL);
     lv_label_set_text(lbl_dist_val, "0");
     lv_obj_add_style(lbl_dist_val, LV_LABEL_PART_MAIN, &sty_val);
@@ -546,7 +471,6 @@ void build_main_page() {
     lv_obj_add_style(lbl_kcal_val, LV_LABEL_PART_MAIN, &sty_val);
     lv_obj_align(lbl_kcal_val, arc_kcal, LV_ALIGN_CENTER, 0, 0);
 
-    // Column headers (y=148)
     const lv_coord_t CW=76;
 #define COL(txt,st,cx,y) { \
     lv_obj_t *_l=lv_label_create(tile,NULL); \
@@ -561,7 +485,6 @@ void build_main_page() {
     COL("KCAL",     sty_ckcal,  CXK, 148)
 #undef COL
 
-    // Pace row (y=176)
     lv_obj_t *pt = lv_label_create(tile, NULL);
     lv_label_set_text(pt, LV_SYMBOL_BULLET " PACE");
     lv_obj_add_style(pt, LV_LABEL_PART_MAIN, &sty_pace);
@@ -577,7 +500,6 @@ void build_main_page() {
     lv_obj_add_style(pu, LV_LABEL_PART_MAIN, &sty_muted);
     lv_obj_set_pos(pu, 160, 176);
 
-    // Separator (y=190)
     lv_obj_t *sep = lv_obj_create(tile, NULL);
     lv_obj_reset_style_list(sep, LV_OBJ_PART_MAIN);
     lv_obj_add_style(sep, LV_OBJ_PART_MAIN, &sty_sep);
@@ -585,7 +507,6 @@ void build_main_page() {
     lv_obj_set_pos(sep, 10, 190);
     lv_obj_set_click(sep, false);
 
-    // Buttons (y=200) — 3×68 + 2×6 = 216, margin=12
     const lv_coord_t BW=68, BH=30, BG=6, BY=200;
     lv_coord_t bx=12;
 
@@ -731,7 +652,6 @@ void refresh_main_page() {
         dist = session_distance_m;
         dur  = session_duration_s;
     } else {
-        // Idle: show all-time totals, timer frozen at 0:00
         stp  = total_steps;
         dist = total_steps * step_len_cm / 100;
         dur  = 0;
@@ -801,16 +721,12 @@ static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event) {
 
     } else {
         // ── STOP ──────────────────────────────────────────────────────────────
-        // Read live pedometer now (FIX C) — don't rely on cached session_steps
-        // which was last updated up to 1 s ago by the display task.
         const uint32_t live_steps  = bma_get_stepcounter();
         const uint32_t step_len_cm = get_step_len_cm();
         const uint32_t final_steps = (live_steps >= session_start_steps)
                                      ? (live_steps - session_start_steps) : 0;
         const uint32_t final_dist  = final_steps * step_len_cm / 100;
         const uint32_t final_dur   = (millis() - session_start_ms) / 1000;
-
-        // Sync accumulators so telemetry task gets the final values
         session_steps      = final_steps;
         session_distance_m = final_dist;
         session_duration_s = final_dur;
@@ -818,10 +734,7 @@ static void btn_startstop_cb(lv_obj_t *obj, lv_event_t event) {
 
         blestepctl_send_hike_end(final_steps, final_dist, final_dur);
         blestepctl_set_hike_active(false);
-
-        // FIX 4 — guard on duration, not steps.
-        // Pedometer may return 0 just after session starts due to hardware
-        // latency, but elapsed time is always reliable.
+        
         if (final_dur > 0) {
             spiffs_save_session(final_steps, final_dist, final_dur);
             refresh_history_page();   // update label immediately
